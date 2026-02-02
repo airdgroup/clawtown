@@ -340,6 +340,93 @@ test('VFX: arrow cast produces arrow fx', async ({ page }) => {
   });
 });
 
+test('Loot: defeating a monster drops loot and auto-picks it up', async ({ page }) => {
+  await resetWorld(page);
+  await page.goto('/');
+  await waitForFonts(page);
+  await closeOnboarding(page);
+
+  const playerId = await page.evaluate(() => {
+    try {
+      return JSON.parse(localStorage.getItem('clawtown.player') || 'null')?.playerId || null;
+    } catch {
+      return null;
+    }
+  });
+  expect(playerId).toBeTruthy();
+
+  // Place player at a deterministic spot and spawn a low-HP slime right next to them.
+  await page.request.post('/api/debug/teleport', { data: { playerId, x: 520, y: 300 } });
+  // Spawn the target exactly on the player to guarantee targeting + pickup.
+  await page.request.post('/api/debug/spawn-monster', { data: { id: 'm_test_slime', kind: 'slime', name: 'Test Poring', x: 520, y: 300, maxHp: 1, hp: 1 } });
+
+  const join = await page.request.post('/api/join-codes', { data: { playerId } });
+  const joinData = await join.json();
+  expect(joinData.ok).toBeTruthy();
+
+  const link = await page.request.post('/api/bot/link', { data: { joinCode: joinData.joinCode } });
+  const linkData = await link.json();
+  expect(linkData.ok).toBeTruthy();
+  const botToken = linkData.botToken;
+
+  // Kill the monster quickly.
+  for (let i = 0; i < 3; i++) {
+    await page.request.post('/api/bot/cast', {
+      headers: { Authorization: `Bearer ${botToken}` },
+      data: { spell: 'signature' },
+    });
+    await page.waitForTimeout(120);
+  }
+
+  // Wait until either zeny or an item appears in inventory (auto-pickup).
+  let ok = false;
+  for (let i = 0; i < 80; i++) {
+    const w = await page.request.get('/api/bot/world', { headers: { Authorization: `Bearer ${botToken}` } });
+    const data = await w.json();
+    const y = data.snapshot?.you;
+    const inv = Array.isArray(y?.inventory) ? y.inventory : [];
+    const z = Number(y?.zenny || 0);
+    if (z > 0 || inv.length > 0) {
+      ok = true;
+      break;
+    }
+    await page.waitForTimeout(150);
+  }
+  expect(ok).toBeTruthy();
+});
+
+test('Inventory: equipping a weapon updates stats', async ({ page }) => {
+  await resetWorld(page);
+  await page.goto('/');
+  await waitForFonts(page);
+  await closeOnboarding(page);
+
+  const playerId = await page.evaluate(() => {
+    try {
+      return JSON.parse(localStorage.getItem('clawtown.player') || 'null')?.playerId || null;
+    } catch {
+      return null;
+    }
+  });
+  expect(playerId).toBeTruthy();
+
+  await page.request.post('/api/debug/grant-item', { data: { playerId, itemId: 'sword_1', qty: 1 } });
+
+  // Open inventory tab and equip.
+  await page.locator('.ui-tab[data-tab="inventory"]').click();
+  await expect(page.locator('#inventory')).toContainText('Training Sword');
+
+  const atkBeforeText = await page.locator('#atk').textContent();
+  const atkBefore = Number(String(atkBeforeText || '').replace(/[^0-9]/g, ''));
+  await page.locator('#inventory button[data-equip="sword_1"]').click();
+
+  await expect(page.locator('#equipWeapon')).toContainText('Training Sword');
+  await page.waitForTimeout(300);
+  const atkAfterText = await page.locator('#atk').textContent();
+  const atkAfter = Number(String(atkAfterText || '').replace(/[^0-9]/g, ''));
+  expect(atkAfter).toBeGreaterThan(atkBefore);
+});
+
 test('Two players can chat (local multiplayer)', async ({ browser }) => {
   const ctxA = await browser.newContext({ viewport: { width: 1200, height: 780 } });
   const ctxB = await browser.newContext({ viewport: { width: 1200, height: 780 } });
