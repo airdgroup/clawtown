@@ -247,11 +247,13 @@ function addToInventory(p, itemId, qty) {
     if (row) row.qty = Math.max(1, Math.floor(Number(row.qty) || 1) + n);
     else p.inventory.push({ itemId: def.id, qty: n });
     markDirty(p);
+    maybeAutoEquipForBot(p, def.id, 'stack pickup');
     return true;
   }
 
   for (let i = 0; i < n; i++) p.inventory.push({ itemId: def.id, qty: 1 });
   markDirty(p);
+  maybeAutoEquipForBot(p, def.id, 'pickup');
   return true;
 }
 
@@ -319,6 +321,41 @@ function rollCraftReward() {
     if (r <= 0) return row.itemId;
   }
   return "dagger_1";
+}
+
+function itemScoreForSlot(def) {
+  if (!def || !def.stats) return 0;
+  const s = def.stats;
+  const atk = Number(s.atk || 0);
+  const defv = Number(s.def || 0);
+  const crit = Number(s.crit || 0);
+  const aspd = Number(s.aspd || 0);
+  // v1 heuristic: prefer raw ATK early (RO-ish feeling)
+  return atk * 100 + defv * 40 + crit * 30 + aspd * 20;
+}
+
+function maybeAutoEquipForBot(p, itemId, reason) {
+  if (!p || !p.linkedBot) return;
+  const def = getItemDef(itemId);
+  if (!def || !['weapon', 'armor', 'accessory'].includes(def.slot)) return;
+  if (!p.equipment) p.equipment = { weapon: null, armor: null, accessory: null };
+
+  const slot = def.slot;
+  const cur = getItemDef(p.equipment[slot]);
+  const curScore = itemScoreForSlot(cur);
+  const newScore = itemScoreForSlot(def);
+  if (newScore <= curScore) return;
+
+  const out = equipItem(p, def.id);
+  if (!out.ok) return;
+
+  const prevName = cur ? cur.name : '—';
+  const why = reason ? ` (${reason})` : '';
+  pushChat({
+    kind: 'chat',
+    text: `[BOT] Equipped ${def.name} instead of ${prevName}${why}.`,
+    from: { id: p.id, name: p.name },
+  });
 }
 
 function playerStats(p) {
@@ -1518,6 +1555,7 @@ wss.on("connection", (ws, req) => {
       if (!ok) return;
       const rewardId = rollCraftReward();
       addToInventory(player, rewardId, 1);
+      maybeAutoEquipForBot(player, rewardId, 'crafted');
       const def = getItemDef(rewardId);
       pushChat({ kind: "system", text: `${player.name} crafted ${def ? def.name : rewardId}!`, from: { id: "system", name: "Town" } });
       pushFx({ type: "guard", x: player.x, y: player.y, byPlayerId: player.id, payload: { craft: true, rewardId } });
