@@ -23,6 +23,10 @@ const jobEl = document.getElementById("job");
 const levelEl = document.getElementById("level");
 const modeManualBtn = document.getElementById("modeManual");
 const modeAgentBtn = document.getElementById("modeAgent");
+const killsEl = document.getElementById("kills");
+const craftsEl = document.getElementById("crafts");
+const pickupsEl = document.getElementById("pickups");
+const achievementsEl = document.getElementById("achievements");
 const intentInput = document.getElementById("intent");
 const saveIntentBtn = document.getElementById("saveIntent");
 const castBtn = document.getElementById("cast");
@@ -755,6 +759,12 @@ function renderHeader() {
     slot4Name.textContent = jobSkillFor(you.job).name;
   }
 
+  if (killsEl) killsEl.textContent = `擊殺：${(you.meta && you.meta.kills) || 0}`;
+  if (craftsEl) craftsEl.textContent = `合成：${(you.meta && you.meta.crafts) || 0}`;
+  if (pickupsEl) pickupsEl.textContent = `拾取：${(you.meta && you.meta.pickups) || 0}`;
+
+  renderAchievements();
+
   if (skill1NameEl) {
     const v = (you.signatureSpell && you.signatureSpell.name) || "";
     if (!skill1NameEl.value) skill1NameEl.value = v;
@@ -783,6 +793,30 @@ function renderHeader() {
   if (equipAccessoryEl) equipAccessoryEl.textContent = (you.equipment && you.equipment.accessory) ? (invNameFor(you.equipment.accessory) || you.equipment.accessory) : "—";
 
   renderInventory();
+}
+
+function renderAchievements() {
+  if (!achievementsEl || !you) return;
+  const meta = you.meta || {};
+  const kills = Number(meta.kills || 0);
+  const crafts = Number(meta.crafts || 0);
+
+  const list = [];
+  if (kills >= 1) list.push({ title: 'First Blood', sub: 'Defeat your first monster.' });
+  if (kills >= 10) list.push({ title: 'Slime Hunter I', sub: 'Defeat 10 monsters.' });
+  if (kills >= 50) list.push({ title: 'Slime Hunter II', sub: 'Defeat 50 monsters.' });
+  if (crafts >= 1) list.push({ title: 'Crafter', sub: 'Craft your first equipment.' });
+  if (crafts >= 10) list.push({ title: 'Workshop Regular', sub: 'Craft 10 times.' });
+
+  if (list.length === 0) {
+    achievementsEl.innerHTML = '<div class="helper">還沒有成就。去打史萊姆、合成裝備吧。</div>';
+    return;
+  }
+
+  achievementsEl.innerHTML = list
+    .slice(0, 6)
+    .map((a) => `<div class="ach"><div class="ach-title">${escapeHtml(a.title)}</div><div class="ach-sub">${escapeHtml(a.sub)}</div></div>`)
+    .join('');
 }
 
 function invNameFor(itemId) {

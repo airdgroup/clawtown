@@ -487,6 +487,39 @@ test('Bot: auto-equips better weapon on pickup', async ({ page }) => {
   expect(me2.player?.equipment?.weapon).toBe('sword_1');
 });
 
+test('Achievements: kill counter increases', async ({ page }) => {
+  await resetWorld(page);
+  await page.goto('/');
+  await waitForFonts(page);
+  await closeOnboarding(page);
+
+  const playerId = await page.evaluate(() => {
+    try {
+      return JSON.parse(localStorage.getItem('clawtown.player') || 'null')?.playerId || null;
+    } catch {
+      return null;
+    }
+  });
+  expect(playerId).toBeTruthy();
+
+  await page.request.post('/api/debug/teleport', { data: { playerId, x: 520, y: 300 } });
+  await page.request.post('/api/debug/spawn-monster', { data: { id: 'm_ach_slime', kind: 'slime', name: 'Ach Poring', x: 520, y: 300, maxHp: 1, hp: 1 } });
+
+  const join = await page.request.post('/api/join-codes', { data: { playerId } });
+  const joinData = await join.json();
+  const link = await page.request.post('/api/bot/link', { data: { joinCode: joinData.joinCode } });
+  const linkData = await link.json();
+  const botToken = linkData.botToken;
+
+  await page.request.post('/api/bot/cast', {
+    headers: { Authorization: `Bearer ${botToken}` },
+    data: { spell: 'signature' },
+  });
+
+  await page.waitForTimeout(250);
+  await expect(page.locator('#kills')).toContainText('1');
+});
+
 test('Persistence: inventory/equipment survives restart (CT_TEST)', async ({ page }) => {
   await resetWorld(page);
   await page.goto('/');
