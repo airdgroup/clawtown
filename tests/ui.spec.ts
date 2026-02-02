@@ -454,6 +454,39 @@ test('Crafting: 3 jelly crafts a random equipment', async ({ page }) => {
   await expect(page.locator('#inventory')).toContainText(/Beginner Dagger|Training Sword|Feather Bow|Cloth Armor|Copper Ring/);
 });
 
+test('Bot: auto-equips better weapon on pickup', async ({ page }) => {
+  await resetWorld(page);
+  await page.goto('/');
+  await waitForFonts(page);
+  await closeOnboarding(page);
+
+  const playerId = await page.evaluate(() => {
+    try {
+      return JSON.parse(localStorage.getItem('clawtown.player') || 'null')?.playerId || null;
+    } catch {
+      return null;
+    }
+  });
+  expect(playerId).toBeTruthy();
+
+  const join = await page.request.post('/api/join-codes', { data: { playerId } });
+  const joinData = await join.json();
+  const link = await page.request.post('/api/bot/link', { data: { joinCode: joinData.joinCode } });
+  const linkData = await link.json();
+  expect(linkData.ok).toBeTruthy();
+  const botToken = linkData.botToken;
+
+  await page.request.post('/api/debug/grant-item', { data: { playerId, itemId: 'dagger_1', qty: 1 } });
+  await page.waitForTimeout(150);
+  const me1 = await (await page.request.get('/api/bot/me', { headers: { Authorization: `Bearer ${botToken}` } })).json();
+  expect(me1.player?.equipment?.weapon).toBe('dagger_1');
+
+  await page.request.post('/api/debug/grant-item', { data: { playerId, itemId: 'sword_1', qty: 1 } });
+  await page.waitForTimeout(150);
+  const me2 = await (await page.request.get('/api/bot/me', { headers: { Authorization: `Bearer ${botToken}` } })).json();
+  expect(me2.player?.equipment?.weapon).toBe('sword_1');
+});
+
 test('Persistence: inventory/equipment survives restart (CT_TEST)', async ({ page }) => {
   await resetWorld(page);
   await page.goto('/');
