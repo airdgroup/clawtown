@@ -45,13 +45,17 @@ function writeJsonAtomic(filePath, obj) {
 
 function exportPlayerProgress(p) {
   return {
-    version: 1,
+    version: 2,
     savedAt: new Date().toISOString(),
     id: p.id,
     name: p.name,
     job: p.job,
     level: p.level,
     xp: p.xp,
+    hp: Math.max(0, Math.floor(Number(p.hp) || 0)),
+    maxHp: Math.max(1, Math.floor(Number(p.maxHp) || 1)),
+    statPoints: Math.max(0, Math.floor(Number(p.statPoints) || 0)),
+    baseStats: p.baseStats || null,
     zenny: Math.max(0, Math.floor(Number(p.zenny) || 0)),
     inventory: Array.isArray(p.inventory) ? p.inventory.slice(0, 200) : [],
     equipment: p.equipment || { weapon: null, armor: null, accessory: null },
@@ -68,6 +72,10 @@ function importPlayerProgress(p, data) {
   if (typeof data.job === "string") p.job = String(data.job);
   if (Number.isFinite(Number(data.level))) p.level = Math.max(1, Math.floor(Number(data.level)));
   if (Number.isFinite(Number(data.xp))) p.xp = Math.max(0, Math.floor(Number(data.xp)));
+  if (Number.isFinite(Number(data.hp))) p.hp = Math.max(0, Math.floor(Number(data.hp)));
+  if (Number.isFinite(Number(data.maxHp))) p.maxHp = Math.max(1, Math.floor(Number(data.maxHp)));
+  if (Number.isFinite(Number(data.statPoints))) p.statPoints = Math.max(0, Math.floor(Number(data.statPoints)));
+  if (data.baseStats && typeof data.baseStats === 'object') p.baseStats = sanitizeBaseStats(data.baseStats);
   if (Number.isFinite(Number(data.zenny))) p.zenny = Math.max(0, Math.floor(Number(data.zenny)));
 
   if (Array.isArray(data.inventory)) {
@@ -446,7 +454,45 @@ function maybeAutoEquipForBot(p, itemId, reason) {
   });
 }
 
+function defaultBaseStats() {
+  return { str: 1, agi: 1, vit: 1, int: 1, dex: 1, luk: 1 };
+}
+
+function sanitizeBaseStats(obj) {
+  const raw = obj && typeof obj === 'object' ? obj : {};
+  const out = defaultBaseStats();
+  for (const k of Object.keys(out)) {
+    const v = Number(raw[k]);
+    if (Number.isFinite(v)) out[k] = clamp(Math.floor(v), 1, 99);
+  }
+  return out;
+}
+
+function ensurePlayerVitals(p, opts) {
+  if (!p) return;
+  const base = sanitizeBaseStats(p.baseStats);
+  p.baseStats = base;
+
+  const level = Math.max(1, Math.floor(Number(p.level) || 1));
+  const vit = Math.max(1, Math.floor(Number(base.vit) || 1));
+  const computedMaxHp = Math.max(1, 30 + (level - 1) * 2 + (vit - 1) * 3);
+  const prevMaxHp = Math.max(1, Math.floor(Number(p.maxHp) || 1));
+  const nextMaxHp = Math.max(prevMaxHp, computedMaxHp);
+  if (nextMaxHp !== prevMaxHp) {
+    p.maxHp = nextMaxHp;
+    if (opts && opts.gainHpFromMaxHpIncrease) {
+      const prevHp = Math.max(0, Math.floor(Number(p.hp) || 0));
+      const delta = nextMaxHp - prevMaxHp;
+      p.hp = Math.min(nextMaxHp, prevHp + delta);
+    }
+  }
+
+  // Safety clamp.
+  p.hp = clamp(Math.floor(Number(p.hp) || 0), 0, Math.floor(Number(p.maxHp) || nextMaxHp));
+}
+
 function playerStats(p) {
+  const base = sanitizeBaseStats(p && p.baseStats);
   const equip = p && p.equipment ? p.equipment : {};
   const weapon = getItemDef(equip.weapon);
   const armor = getItemDef(equip.armor);
@@ -464,10 +510,16 @@ function playerStats(p) {
           p.job === "assassin" ? 3 :
             p.job === "bard" ? 2 : 2;
 
-  const atk = atkBase + (w.atk || 0) + (a.atk || 0) + (r.atk || 0);
-  const def = (a.def || 0) + (w.def || 0) + (r.def || 0);
-  const crit = Math.max(0, (w.crit || 0) + (a.crit || 0) + (r.crit || 0));
-  const aspd = Math.max(0, (w.aspd || 0) + (a.aspd || 0) + (r.aspd || 0));
+  const strAtk = Math.max(0, Math.floor((base.str || 1) - 1));
+  const dexAtk = p.job === 'archer' ? Math.floor(Math.max(0, (base.dex || 1) - 1) / 2) : 0;
+  const vitDef = Math.floor(Math.max(0, (base.vit || 1) - 1) / 2);
+  const lukCrit = Math.max(0, Math.floor((base.luk || 1) - 1)) * 0.01;
+  const agiAspd = Math.max(0, Math.floor((base.agi || 1) - 1)) * 0.01;
+
+  const atk = atkBase + strAtk + dexAtk + (w.atk || 0) + (a.atk || 0) + (r.atk || 0);
+  const def = vitDef + (a.def || 0) + (w.def || 0) + (r.def || 0);
+  const crit = clamp((w.crit || 0) + (a.crit || 0) + (r.crit || 0) + lukCrit, 0, 0.8);
+  const aspd = clamp((w.aspd || 0) + (a.aspd || 0) + (r.aspd || 0) + agiAspd, 0, 0.8);
   return { atk, def, crit, aspd };
 }
 
@@ -500,7 +552,8 @@ function getOrCreatePlayer(playerId, name) {
       inventory: [],
       equipment: { weapon: null, armor: null, accessory: null },
       meta: { kills: 0, crafts: 0, pickups: 0 },
-      statPoints: 0,
+      statPoints: 5,
+      baseStats: defaultBaseStats(),
       job: "novice",
       jobSkill: {
         name: "職業技",
@@ -536,6 +589,8 @@ function getOrCreatePlayer(playerId, name) {
       if (!p.signatureSpell) p.signatureSpell = { name: "", tagline: "", effect: "spark" };
     }
 
+    ensurePlayerVitals(p, { gainHpFromMaxHpIncrease: false });
+
     players.set(id, p);
     pushChat({
       kind: "system",
@@ -564,6 +619,7 @@ function defaultJobSkillForJob(job) {
 }
 
 function toPublicPlayer(p) {
+  ensurePlayerVitals(p, { gainHpFromMaxHpIncrease: false });
   return {
     id: p.id,
     name: p.name,
@@ -579,6 +635,7 @@ function toPublicPlayer(p) {
     xp: p.xp,
     xpToNext: xpToNext(p.level),
     statPoints: p.statPoints,
+    baseStats: sanitizeBaseStats(p.baseStats),
     zenny: Math.max(0, Math.floor(Number(p.zenny) || 0)),
     stats: playerStats(p),
     meta: p.meta || { kills: 0, crafts: 0, pickups: 0 },
@@ -826,9 +883,10 @@ function applyDamage(p, m, dmg) {
       markDirty(kp);
       const newLevel = levelForXp(kp.xp);
       if (newLevel > kp.level) {
+        const prevLevel = kp.level;
         kp.level = newLevel;
-        kp.statPoints += 1;
-        kp.maxHp += 2;
+        kp.statPoints += Math.max(0, newLevel - prevLevel);
+        ensurePlayerVitals(kp, { gainHpFromMaxHpIncrease: true });
         kp.hp = kp.maxHp;
         pushChat({ kind: "system", text: `${kp.name} reached Level ${kp.level}!`, from: { id: "system", name: "Town" } });
         markDirty(kp);
@@ -1642,8 +1700,10 @@ function tryAutoPickup(p) {
     markDirty(p);
     const newLevel = levelForXp(p.xp);
     if (newLevel > p.level) {
+      const prevLevel = p.level;
       p.level = newLevel;
-      p.statPoints += 1;
+      p.statPoints += Math.max(0, newLevel - prevLevel);
+      ensurePlayerVitals(p, { gainHpFromMaxHpIncrease: true });
       pushChat({ kind: "system", text: `${p.name} reached Level ${p.level}!`, from: { id: "system", name: "Town" } });
       markDirty(p);
     }
@@ -1731,6 +1791,21 @@ wss.on("connection", (ws, req) => {
       return;
     }
 
+    if (type === "alloc_stat") {
+      const stat = String(msg?.stat || "").trim().toLowerCase();
+      const allowed = new Set(["str", "agi", "vit", "int", "dex", "luk"]);
+      if (!allowed.has(stat)) return;
+      const n = clamp(Math.floor(Number(msg?.n || 1)), 1, 99);
+      if (Number(player.statPoints || 0) < n) return;
+
+      player.baseStats = sanitizeBaseStats(player.baseStats);
+      player.baseStats[stat] = clamp(Math.floor(Number(player.baseStats[stat] || 1)) + n, 1, 99);
+      player.statPoints = Math.max(0, Math.floor(Number(player.statPoints) || 0) - n);
+      ensurePlayerVitals(player, { gainHpFromMaxHpIncrease: true });
+      markDirty(player);
+      return;
+    }
+
     if (type === "craft") {
       const recipe = String(msg?.recipe || "").trim();
       if (recipe !== "jelly_3") return;
@@ -1796,15 +1871,17 @@ wss.on("connection", (ws, req) => {
       if (!created) return;
       player.xp += 1;
       markDirty(player);
-      const newLevel = levelForXp(player.xp);
-      if (newLevel > player.level) {
-        player.level = newLevel;
-        player.statPoints += 1;
-        pushChat({ kind: "system", text: `${player.name} reached Level ${player.level}!`, from: { id: "system", name: "Town" } });
-        markDirty(player);
+        const newLevel = levelForXp(player.xp);
+        if (newLevel > player.level) {
+          const prevLevel = player.level;
+          player.level = newLevel;
+          player.statPoints += Math.max(0, newLevel - prevLevel);
+          ensurePlayerVitals(player, { gainHpFromMaxHpIncrease: true });
+          pushChat({ kind: "system", text: `${player.name} reached Level ${player.level}!`, from: { id: "system", name: "Town" } });
+          markDirty(player);
+        }
+        return;
       }
-      return;
-    }
 
     if (type === "emote") {
       const emote = String(msg?.emote || "").trim().toLowerCase();
@@ -1956,8 +2033,10 @@ function tick() {
         markDirty(p);
         const newLevel = levelForXp(p.xp);
         if (newLevel > p.level) {
+          const prevLevel = p.level;
           p.level = newLevel;
-          p.statPoints += 1;
+          p.statPoints += Math.max(0, newLevel - prevLevel);
+          ensurePlayerVitals(p, { gainHpFromMaxHpIncrease: true });
           pushChat({ kind: "system", text: `${p.name} reached Level ${p.level}!`, from: { id: "system", name: "Town" } });
           markDirty(p);
         }

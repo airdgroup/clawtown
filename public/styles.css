@@ -439,6 +439,20 @@ textarea {
   transform: translateY(1px);
 }
 
+.btn:disabled {
+  opacity: 0.48;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.btn-mini {
+  padding: 7px 10px;
+  font-size: 11px;
+  letter-spacing: 0.1px;
+  box-shadow: none;
+}
+
 .btn-ghost {
   border: 1px solid rgba(19, 27, 42, 0.16);
   background: rgba(255, 255, 255, 0.55);
@@ -484,6 +498,45 @@ textarea {
   font-family: var(--mono);
   font-size: 12px;
   color: rgba(19, 27, 42, 0.78);
+}
+
+.stat-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.stat-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 16px;
+  border: 1px solid rgba(19, 27, 42, 0.14);
+  background: rgba(255, 255, 255, 0.62);
+}
+
+.stat-key {
+  font-family: var(--mono);
+  font-weight: 900;
+  letter-spacing: 1px;
+  color: rgba(19, 27, 42, 0.78);
+}
+
+.stat-val {
+  font-family: var(--mono);
+  font-weight: 900;
+  color: rgba(19, 27, 42, 0.9);
+  min-width: 26px;
+  text-align: right;
+}
+
+@media (max-width: 720px) {
+  .stat-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .feed {

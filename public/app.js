@@ -28,6 +28,22 @@ const craftsEl = document.getElementById("crafts");
 const pickupsEl = document.getElementById("pickups");
 const achievementsEl = document.getElementById("achievements");
 
+const statPointsEl = document.getElementById("statPoints");
+const hpPillEl = document.getElementById("hpPill");
+const statStrValEl = document.getElementById("statStrVal");
+const statAgiValEl = document.getElementById("statAgiVal");
+const statVitValEl = document.getElementById("statVitVal");
+const statIntValEl = document.getElementById("statIntVal");
+const statDexValEl = document.getElementById("statDexVal");
+const statLukValEl = document.getElementById("statLukVal");
+
+const allocStrBtn = document.getElementById("allocStr");
+const allocAgiBtn = document.getElementById("allocAgi");
+const allocVitBtn = document.getElementById("allocVit");
+const allocIntBtn = document.getElementById("allocInt");
+const allocDexBtn = document.getElementById("allocDex");
+const allocLukBtn = document.getElementById("allocLuk");
+
 const partyCreateBtn = document.getElementById("partyCreate");
 const partyLeaveBtn = document.getElementById("partyLeave");
 const partyCodeInput = document.getElementById("partyCode");
@@ -185,6 +201,11 @@ function setMode(mode) {
   ws.send(JSON.stringify({ type: "set_mode", mode }));
 }
 
+function allocStat(stat) {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  ws.send(JSON.stringify({ type: "alloc_stat", stat, n: 1 }));
+}
+
 function jobSkillFor(job) {
   // Prefer the user-configured Skill 4 on the player.
   const cfg = you && you.jobSkill;
@@ -270,6 +291,13 @@ slot4?.addEventListener("click", () => {
   }
   castSpell(sk.spell);
 });
+
+allocStrBtn?.addEventListener("click", () => allocStat("str"));
+allocAgiBtn?.addEventListener("click", () => allocStat("agi"));
+allocVitBtn?.addEventListener("click", () => allocStat("vit"));
+allocIntBtn?.addEventListener("click", () => allocStat("int"));
+allocDexBtn?.addEventListener("click", () => allocStat("dex"));
+allocLukBtn?.addEventListener("click", () => allocStat("luk"));
 
 window.addEventListener("keydown", (e) => {
   const tag = (e.target && e.target.tagName) || "";
@@ -789,6 +817,7 @@ function stepInput() {
 
 function renderHeader() {
   if (!you) return;
+  const bs = you.baseStats || {};
   jobEl.textContent = `職業：${you.job}`;
   levelEl.textContent = `等級 ${you.level}（${you.xp}/${you.xpToNext}）`;
   modeManualBtn.classList.toggle("is-active", you.mode === "manual");
@@ -812,6 +841,22 @@ function renderHeader() {
   if (killsEl) killsEl.textContent = `擊殺：${(you.meta && you.meta.kills) || 0}`;
   if (craftsEl) craftsEl.textContent = `合成：${(you.meta && you.meta.crafts) || 0}`;
   if (pickupsEl) pickupsEl.textContent = `拾取：${(you.meta && you.meta.pickups) || 0}`;
+
+  if (statPointsEl) statPointsEl.textContent = `點數：${you.statPoints ?? 0}`;
+  if (hpPillEl) hpPillEl.textContent = `HP：${you.hp ?? 0}/${you.maxHp ?? 0}`;
+  if (statStrValEl) statStrValEl.textContent = String(bs.str ?? 1);
+  if (statAgiValEl) statAgiValEl.textContent = String(bs.agi ?? 1);
+  if (statVitValEl) statVitValEl.textContent = String(bs.vit ?? 1);
+  if (statIntValEl) statIntValEl.textContent = String(bs.int ?? 1);
+  if (statDexValEl) statDexValEl.textContent = String(bs.dex ?? 1);
+  if (statLukValEl) statLukValEl.textContent = String(bs.luk ?? 1);
+
+  const canAlloc = Number(you.statPoints || 0) > 0;
+  for (const b of [allocStrBtn, allocAgiBtn, allocVitBtn, allocIntBtn, allocDexBtn, allocLukBtn]) {
+    if (!b) continue;
+    b.disabled = !canAlloc;
+    b.title = canAlloc ? "分配 1 點" : "沒有可用點數";
+  }
 
   renderAchievements();
 

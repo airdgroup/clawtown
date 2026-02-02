@@ -95,6 +95,46 @@
                 </div>
 
                 <div class="divider"></div>
+                <div class="card-title">能力值</div>
+                <div class="row row-inline">
+                  <div class="pill" id="statPoints">點數：0</div>
+                  <div class="pill" id="hpPill">HP：0/0</div>
+                </div>
+                <div class="stat-grid" id="statGrid">
+                  <div class="stat-row">
+                    <div class="stat-key">STR</div>
+                    <div class="stat-val" id="statStrVal">1</div>
+                    <button class="btn btn-ghost btn-mini" id="allocStr">+1</button>
+                  </div>
+                  <div class="stat-row">
+                    <div class="stat-key">AGI</div>
+                    <div class="stat-val" id="statAgiVal">1</div>
+                    <button class="btn btn-ghost btn-mini" id="allocAgi">+1</button>
+                  </div>
+                  <div class="stat-row">
+                    <div class="stat-key">VIT</div>
+                    <div class="stat-val" id="statVitVal">1</div>
+                    <button class="btn btn-ghost btn-mini" id="allocVit">+1</button>
+                  </div>
+                  <div class="stat-row">
+                    <div class="stat-key">INT</div>
+                    <div class="stat-val" id="statIntVal">1</div>
+                    <button class="btn btn-ghost btn-mini" id="allocInt">+1</button>
+                  </div>
+                  <div class="stat-row">
+                    <div class="stat-key">DEX</div>
+                    <div class="stat-val" id="statDexVal">1</div>
+                    <button class="btn btn-ghost btn-mini" id="allocDex">+1</button>
+                  </div>
+                  <div class="stat-row">
+                    <div class="stat-key">LUK</div>
+                    <div class="stat-val" id="statLukVal">1</div>
+                    <button class="btn btn-ghost btn-mini" id="allocLuk">+1</button>
+                  </div>
+                </div>
+                <div class="helper">v1：STR→ATK、AGI→ASPD、VIT→HP/DEF、LUK→CRIT。先做簡單有感，之後再細化職業流派。</div>
+
+                <div class="divider"></div>
                 <div class="card-title">成就</div>
                 <div id="achievements" class="achievements"></div>
                 <div class="row">

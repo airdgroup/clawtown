@@ -554,6 +554,63 @@ test('Persistence: inventory/equipment survives restart (CT_TEST)', async ({ pag
   await expect(page.locator('#zenny')).toContainText('25');
 });
 
+test('Stats: allocating STR increases ATK and persists (CT_TEST)', async ({ page }) => {
+  await resetWorld(page);
+  await page.goto('/');
+  await waitForFonts(page);
+  await closeOnboarding(page);
+
+  const playerId = await page.evaluate(() => {
+    try {
+      return JSON.parse(localStorage.getItem('clawtown.player') || 'null')?.playerId || null;
+    } catch {
+      return null;
+    }
+  });
+  expect(playerId).toBeTruthy();
+
+  await page.waitForFunction(() => {
+    const y = (window as any).__ct?.you;
+    return y && typeof y.level === 'number' && y.stats && typeof y.stats.atk === 'number';
+  });
+
+  const atkBeforeText = await page.locator('#atk').textContent();
+  const atkBefore = Number(String(atkBeforeText || '').replace(/[^0-9]/g, ''));
+  const strBeforeText = await page.locator('#statStrVal').textContent();
+  const strBefore = Number(String(strBeforeText || '').replace(/[^0-9]/g, ''));
+
+  await page.locator('#allocStr').click();
+
+  await page.waitForFunction(
+    (args: any) => {
+      const y = (window as any).__ct?.you;
+      if (!y) return false;
+      const atk = Math.floor((y.stats && y.stats.atk) || 0);
+      const str = Number((y.baseStats && y.baseStats.str) || 0);
+      return atk > args.atkBefore && str === args.strBefore + 1;
+    },
+    { atkBefore, strBefore },
+  );
+
+  await page.request.post('/api/debug/persist-flush', { data: { playerId } });
+  await page.request.post('/api/debug/restart-sim');
+
+  await page.reload();
+  await waitForFonts(page);
+
+  await page.waitForFunction(
+    (args: any) => {
+      const y = (window as any).__ct?.you;
+      if (!y) return false;
+      const str = Number((y.baseStats && y.baseStats.str) || 0);
+      return str === args.strAfter;
+    },
+    { strAfter: strBefore + 1 },
+  );
+
+  await expect(page.locator('#statStrVal')).toContainText(String(strBefore + 1));
+});
+
 test('Two players can chat (local multiplayer)', async ({ browser }) => {
   const ctxA = await browser.newContext({ viewport: { width: 1200, height: 780 } });
   const ctxB = await browser.newContext({ viewport: { width: 1200, height: 780 } });
