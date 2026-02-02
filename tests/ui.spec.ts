@@ -427,6 +427,33 @@ test('Inventory: equipping a weapon updates stats', async ({ page }) => {
   expect(atkAfter).toBeGreaterThan(atkBefore);
 });
 
+test('Crafting: 3 jelly crafts a random equipment', async ({ page }) => {
+  await resetWorld(page);
+  await page.goto('/');
+  await waitForFonts(page);
+  await closeOnboarding(page);
+
+  const playerId = await page.evaluate(() => {
+    try {
+      return JSON.parse(localStorage.getItem('clawtown.player') || 'null')?.playerId || null;
+    } catch {
+      return null;
+    }
+  });
+  expect(playerId).toBeTruthy();
+
+  await page.request.post('/api/debug/grant-item', { data: { playerId, itemId: 'jelly', qty: 3 } });
+
+  await page.locator('.ui-tab[data-tab="inventory"]').click();
+  await expect(page.locator('#craftJelly')).toBeEnabled();
+  await expect(page.locator('#craftJellyHint')).toContainText('3');
+
+  await page.locator('#craftJelly').click();
+
+  // reward shows up in inventory
+  await expect(page.locator('#inventory')).toContainText(/Beginner Dagger|Training Sword|Feather Bow|Cloth Armor|Copper Ring/);
+});
+
 test('Persistence: inventory/equipment survives restart (CT_TEST)', async ({ page }) => {
   await resetWorld(page);
   await page.goto('/');

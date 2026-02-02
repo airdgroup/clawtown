@@ -82,6 +82,9 @@ const equipWeaponEl = document.getElementById("equipWeapon");
 const equipArmorEl = document.getElementById("equipArmor");
 const equipAccessoryEl = document.getElementById("equipAccessory");
 
+const craftJellyBtn = document.getElementById("craftJelly");
+const craftJellyHintBtn = document.getElementById("craftJellyHint");
+
 const onboardingEl = document.getElementById("onboarding");
 const onboardingStart = document.getElementById("onboardingStart");
 const onboardingGoHat = document.getElementById("onboardingGoHat");
@@ -676,6 +679,11 @@ inventoryEl?.addEventListener("click", (e) => {
   ws.send(JSON.stringify({ type: "equip", itemId }));
 });
 
+craftJellyBtn?.addEventListener("click", () => {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  ws.send(JSON.stringify({ type: "craft", recipe: "jelly_3" }));
+});
+
 canvas.addEventListener("click", (e) => {
   if (!you) return;
   if (you.mode !== "manual") return;
@@ -786,6 +794,17 @@ function invNameFor(itemId) {
 function renderInventory() {
   if (!inventoryEl || !you) return;
   const items = Array.isArray(you.inventory) ? you.inventory : [];
+
+  // update craft hint
+  const jelly = items.find((it) => it && it.itemId === 'jelly');
+  const jellyQty = jelly ? Number(jelly.qty || 0) : 0;
+  if (craftJellyHintBtn) {
+    craftJellyHintBtn.textContent = `需要 3 Jelly（${jellyQty}）`;
+  }
+  if (craftJellyBtn) {
+    craftJellyBtn.disabled = jellyQty < 3;
+  }
+
   if (items.length === 0) {
     inventoryEl.innerHTML = '<div class="helper">背包是空的。去打史萊姆吧。</div>';
     return;

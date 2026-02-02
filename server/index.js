@@ -269,6 +269,58 @@ function equipItem(p, itemId) {
   return { ok: true, slot: slotKey, itemId: def.id };
 }
 
+function countInventory(p, itemId) {
+  const id = String(itemId || "");
+  if (!p || !Array.isArray(p.inventory) || !id) return 0;
+  let total = 0;
+  for (const it of p.inventory) {
+    if (!it || it.itemId !== id) continue;
+    total += Math.max(1, Math.floor(Number(it.qty) || 1));
+  }
+  return total;
+}
+
+function consumeFromInventory(p, itemId, qty) {
+  const id = String(itemId || "");
+  let need = Math.max(1, Math.floor(Number(qty) || 1));
+  if (!p || !Array.isArray(p.inventory) || !id) return false;
+
+  // stackable items are stored as one row; non-stackable can be multiple rows.
+  for (let i = p.inventory.length - 1; i >= 0 && need > 0; i--) {
+    const it = p.inventory[i];
+    if (!it || it.itemId !== id) continue;
+    const have = Math.max(1, Math.floor(Number(it.qty) || 1));
+    if (have <= need) {
+      need -= have;
+      p.inventory.splice(i, 1);
+    } else {
+      it.qty = have - need;
+      need = 0;
+    }
+  }
+
+  const ok = need === 0;
+  if (ok) markDirty(p);
+  return ok;
+}
+
+function rollCraftReward() {
+  const table = [
+    { itemId: "dagger_1", w: 35 },
+    { itemId: "sword_1", w: 30 },
+    { itemId: "bow_1", w: 20 },
+    { itemId: "armor_1", w: 10 },
+    { itemId: "ring_1", w: 5 },
+  ];
+  const sum = table.reduce((s, r) => s + r.w, 0);
+  let r = Math.random() * sum;
+  for (const row of table) {
+    r -= row.w;
+    if (r <= 0) return row.itemId;
+  }
+  return "dagger_1";
+}
+
 function playerStats(p) {
   const equip = p && p.equipment ? p.equipment : {};
   const weapon = getItemDef(equip.weapon);
@@ -1451,6 +1503,24 @@ wss.on("connection", (ws, req) => {
         const def = getItemDef(itemId);
         pushChat({ kind: "system", text: `${player.name} equipped ${def ? def.name : itemId}.`, from: { id: "system", name: "Town" } });
       }
+      return;
+    }
+
+    if (type === "craft") {
+      const recipe = String(msg?.recipe || "").trim();
+      if (recipe !== "jelly_3") return;
+      const have = countInventory(player, "jelly");
+      if (have < 3) {
+        pushChat({ kind: "system", text: `${player.name} needs 3 Poring Jelly to craft.`, from: { id: "system", name: "Town" }, toPlayerId: player.id });
+        return;
+      }
+      const ok = consumeFromInventory(player, "jelly", 3);
+      if (!ok) return;
+      const rewardId = rollCraftReward();
+      addToInventory(player, rewardId, 1);
+      const def = getItemDef(rewardId);
+      pushChat({ kind: "system", text: `${player.name} crafted ${def ? def.name : rewardId}!`, from: { id: "system", name: "Town" } });
+      pushFx({ type: "guard", x: player.x, y: player.y, byPlayerId: player.id, payload: { craft: true, rewardId } });
       return;
     }
 
