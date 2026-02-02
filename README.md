@@ -7,6 +7,7 @@ v1 目標（可 demo / 可自動測試）：
 - Sorting Hat（分類帽）產生職業 + Signature（技能 1）
 - 連結 Bot（join token → botToken）
 - H-Mode（agent）自動移動（goal 驅動）+ bot 可 chat/intent/cast
+- 成長（v1）：掉落 → 自動撿取 → 背包 → 裝備 → ATK/DEF 變強（可跨重啟）
 - Bot 想法：聊天室以 `[BOT]` 前綴，並在右側 Bot 分頁集中顯示
 
 開始（本機）
@@ -130,6 +131,11 @@ npm run test:ui
 ```
 
 （測試會跑在 3100 port，並使用 `CT_TEST=1` 開啟 `/api/debug/reset` 來重置世界狀態，詳見 `TESTING.md`。）
+
+資料保存（成長可跨重啟）
+
+- 預設儲存位置：`clawtown/.data/players/<playerId>.json`
+- 可用 `CT_DATA_DIR` 變更存放目錄
 
 如果 UI 有視覺變更需要更新 snapshot：
 ```

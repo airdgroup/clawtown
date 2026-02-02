@@ -427,6 +427,40 @@ test('Inventory: equipping a weapon updates stats', async ({ page }) => {
   expect(atkAfter).toBeGreaterThan(atkBefore);
 });
 
+test('Persistence: inventory/equipment survives restart (CT_TEST)', async ({ page }) => {
+  await resetWorld(page);
+  await page.goto('/');
+  await waitForFonts(page);
+  await closeOnboarding(page);
+
+  const playerId = await page.evaluate(() => {
+    try {
+      return JSON.parse(localStorage.getItem('clawtown.player') || 'null')?.playerId || null;
+    } catch {
+      return null;
+    }
+  });
+  expect(playerId).toBeTruthy();
+
+  await page.request.post('/api/debug/grant-item', { data: { playerId, itemId: 'sword_1', qty: 1 } });
+  await page.request.post('/api/debug/grant-item', { data: { playerId, itemId: 'zenny', qty: 25 } });
+
+  await page.locator('.ui-tab[data-tab="inventory"]').click();
+  await expect(page.locator('#inventory')).toContainText('Training Sword');
+  await page.locator('#inventory button[data-equip="sword_1"]').click();
+  await expect(page.locator('#equipWeapon')).toContainText('Training Sword');
+
+  await page.request.post('/api/debug/persist-flush', { data: { playerId } });
+  await page.request.post('/api/debug/restart-sim');
+
+  await page.reload();
+  await waitForFonts(page);
+
+  await page.locator('.ui-tab[data-tab="inventory"]').click();
+  await expect(page.locator('#equipWeapon')).toContainText('Training Sword');
+  await expect(page.locator('#zenny')).toContainText('25');
+});
+
 test('Two players can chat (local multiplayer)', async ({ browser }) => {
   const ctxA = await browser.newContext({ viewport: { width: 1200, height: 780 } });
   const ctxB = await browser.newContext({ viewport: { width: 1200, height: 780 } });
