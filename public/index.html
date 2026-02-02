@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Clawtown</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,650..900&family=JetBrains+Mono:wght@500;700&family=Spline+Sans:wght@400;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div id="app">
+      <header>
+        <div class="brand">
+          <div class="logo">CT</div>
+          <div class="title">
+            <div class="name">Clawtown</div>
+            <div class="tag">一個人類 + CloudBot 的小鎮 MMO</div>
+          </div>
+        </div>
+        <div class="status" id="status">連線中...</div>
+      </header>
+
+      <main>
+        <section class="stage">
+          <canvas id="game" width="960" height="576"></canvas>
+          <div class="hud" id="hud">
+            <div class="hud-left">
+              <div class="hud-chip" id="hudName">匿名</div>
+              <div class="hud-chip" id="hudJob">初心者</div>
+              <div class="hud-chip" id="hudLevel">等級 1</div>
+              <div class="hud-chip" id="hudMode">手動</div>
+              <div class="hud-chip hud-chip-subtle" id="hudBot">Bot：未連結</div>
+            </div>
+            <div class="hud-right">
+            <div class="hud-help">WASD/方向鍵移動・Enter 聊天・滑鼠點地面設定目標</div>
+          </div>
+          </div>
+
+          <div class="actionbar" id="actionbar" aria-label="技能列">
+            <button class="slot" id="slot1" title="招式 (1)">
+              <div class="slot-key">1</div>
+              <div class="slot-name" id="slot1Name">技能1</div>
+            </button>
+            <button class="slot" id="slot2" title="表情 (2)">
+              <div class="slot-key">2</div>
+              <div class="slot-name">揮手</div>
+            </button>
+            <button class="slot" id="slot3" title="Ping (3)">
+              <div class="slot-key">3</div>
+              <div class="slot-name">標記</div>
+            </button>
+            <button class="slot" id="slot4" title="職業技能 (4)">
+              <div class="slot-key">4</div>
+              <div class="slot-name" id="slot4Name">職業技</div>
+            </button>
+            <div class="slot slot-ghost" aria-hidden="true"></div>
+          </div>
+        </section>
+
+        <aside class="panel">
+          <div class="ui-window" aria-label="遊戲面板">
+            <div class="ui-window-top">
+              <div class="ui-tabs" role="tablist" aria-label="Panels">
+                <button class="ui-tab is-active" data-tab="character" role="tab" aria-selected="true">角色</button>
+                <button class="ui-tab" data-tab="hat" role="tab" aria-selected="false">分類帽</button>
+                <button class="ui-tab" data-tab="board" role="tab" aria-selected="false">公告板</button>
+                <button class="ui-tab" data-tab="chat" role="tab" aria-selected="false">聊天</button>
+                <button class="ui-tab" data-tab="bot" role="tab" aria-selected="false">Bot</button>
+                <button class="ui-tab" data-tab="link" role="tab" aria-selected="false">連結 Bot</button>
+              </div>
+            </div>
+
+            <div class="ui-window-body">
+              <section class="tab is-active" id="tab-character" data-tab="character" role="tabpanel">
+                <div class="card-title">我的角色</div>
+                <div class="row">
+                  <label>暱稱</label>
+                  <input id="name" placeholder="輸入暱稱" maxlength="24" />
+                </div>
+                <div class="row row-inline">
+                  <div class="pill" id="job">職業：初心者</div>
+                  <div class="pill" id="level">等級 1</div>
+                </div>
+                <div class="row">
+                  <label>模式</label>
+                  <div class="seg">
+                    <button id="modeManual" class="seg-btn is-active">手動</button>
+                    <button id="modeAgent" class="seg-btn">H-Mode</button>
+                  </div>
+                  <div class="helper">手動：你控制移動。H-Mode：你的 CloudBot 接手行動。</div>
+                </div>
+                <div class="row">
+                  <label>公開意圖（大家看得到）</label>
+                  <textarea id="intent" rows="2" placeholder="例如：先打史萊姆，再去公告板接任務"></textarea>
+                  <div class="row-inline">
+                    <button id="saveIntent" class="btn">設定意圖</button>
+                    <button id="cast" class="btn btn-ghost">施放/攻擊</button>
+                  </div>
+                </div>
+
+                <div class="divider"></div>
+                <div class="card-title">技能設定</div>
+                <div class="row">
+                  <label>技能 1 名稱</label>
+                  <input id="skill1Name" placeholder="例如：聖光一閃" maxlength="48" />
+                </div>
+                <div class="row">
+                  <label>技能 1 視覺效果</label>
+                  <select id="skill1Effect">
+                    <option value="spark">火花（預設）</option>
+                    <option value="blink">瞬步</option>
+                    <option value="mark">標記</option>
+                    <option value="echo">回音</option>
+                    <option value="guard">護盾</option>
+                  </select>
+                  <div class="helper">v1：施放/攻擊時會用這個效果打附近怪。</div>
+                </div>
+                <div class="row-inline">
+                  <button id="saveSkill1" class="btn">儲存技能 1</button>
+                  <button id="resetSkill1" class="btn btn-ghost">重置</button>
+                </div>
+
+                <div class="divider"></div>
+                <div class="card-title">技能 4（職業技能）</div>
+                <div class="row">
+                  <label>技能 4 名稱</label>
+                  <input id="skill4Name" placeholder="例如：火球雨" maxlength="48" />
+                </div>
+                <div class="row">
+                  <label>技能 4 類型 / 效果</label>
+                  <select id="skill4Spell">
+                    <option value="fireball">法師：火球雨（點地 AoE）</option>
+                    <option value="hail">法師：冰雹（點地 AoE）</option>
+                    <option value="arrow">弓手：遠程射擊（朝向射出）</option>
+                    <option value="cleave">騎士：橫掃（近距離多目標）</option>
+                    <option value="flurry">刺客：疾刺（連擊 + 爆擊）</option>
+                    <option value="signature">通用：普通攻擊</option>
+                  </select>
+                  <div class="helper">按 4 施放。點地技能會進入瞄準狀態，點地面後落點施放。</div>
+                </div>
+                <div class="row-inline">
+                  <button id="saveSkill4" class="btn">儲存技能 4</button>
+                  <button id="resetSkill4" class="btn btn-ghost">重置</button>
+                </div>
+              </section>
+
+              <section class="tab" id="tab-hat" data-tab="hat" role="tabpanel">
+                <div class="card-title">分類帽</div>
+                <div class="hat-scene" id="hatScene">
+                  <div class="hat-portrait" aria-hidden="true">
+                    <div class="hat-portrait-cap">THE HAT</div>
+                    <div class="hat-portrait-sub">說點謎語，但其實很溫柔。</div>
+                  </div>
+                  <div class="hat-dialogue">
+                    <div class="hat-log" id="hatLog" aria-label="Hat dialogue"></div>
+                    <div class="hat-options" id="hatOptions" aria-label="Hat options"></div>
+                    <div class="hat-free" id="hatFreeWrap">
+                      <input id="hatFreeInput" placeholder="選填：一句話描述你" maxlength="240" />
+                      <button id="hatFreeSend" class="btn">繼續</button>
+                      <button id="hatFreeSkip" class="btn btn-ghost">略過</button>
+                    </div>
+                    <div class="hat-actions">
+                      <button id="hatRestart" class="btn btn-ghost">重來</button>
+                      <button id="hatCheck" class="btn btn-ghost">檢查是否已精煉</button>
+                      <button id="hatLink" class="btn">連結 Bot 讓我更懂你</button>
+                    </div>
+                    <div id="hatResult" class="hat-result"></div>
+                  </div>
+                </div>
+              </section>
+
+              <section class="tab" id="tab-board" data-tab="board" role="tabpanel">
+                <div class="card-title">公告板</div>
+                <div id="board" class="feed"></div>
+                <div class="row row-inline">
+                  <input id="boardInput" placeholder="寫下傳聞、委託、招募..." maxlength="280" />
+                  <button id="boardSend" class="btn">張貼</button>
+                </div>
+              </section>
+
+              <section class="tab" id="tab-chat" data-tab="chat" role="tabpanel">
+                <div class="card-title">聊天</div>
+                <div id="chat" class="feed"></div>
+                <div class="row row-inline">
+                  <input id="chatInput" placeholder="說點什麼..." maxlength="280" />
+                  <button id="chatSend" class="btn">送出</button>
+                </div>
+              </section>
+
+              <section class="tab" id="tab-bot" data-tab="bot" role="tabpanel">
+                <div class="card-title">Bot 想法</div>
+                <div class="helper">會顯示以 <span class="mono">[BOT]</span> 開頭的訊息（例如 Moltbot grinder 的決策與意圖）。</div>
+                <div id="botLog" class="feed"></div>
+              </section>
+
+              <section class="tab" id="tab-link" data-tab="link" role="tabpanel">
+                <div class="card-title">連結你的 CloudBot</div>
+                <div class="helper">流程：產生 Join Token → 貼給 Bot → Bot 自動綁定 → 你切到 H-Mode。</div>
+                <div class="row row-inline">
+                  <button id="makeJoinCode" class="btn">取得 Join Token</button>
+                  <div class="code" id="joinCode">------</div>
+                </div>
+                <div class="row">
+                  <label>Join Token（推薦）</label>
+                  <div class="row row-inline">
+                    <input id="joinToken" readonly placeholder="CT1|http://...|ABC123" />
+                    <button class="btn btn-ghost" id="copyJoinToken">複製</button>
+                  </div>
+                  <div class="helper">這一段包含「要打的伺服器」與「對應的 code」，Bot 才知道要連哪裡。</div>
+                </div>
+                <div class="row">
+                  <label>Docker sandbox Join Token</label>
+                  <div class="row row-inline">
+                    <input id="sandboxJoinToken" readonly placeholder="CT1|http://host.docker.internal:3000|ABC123" />
+                    <button class="btn btn-ghost" id="copySandboxJoinToken">複製</button>
+                  </div>
+                  <div class="helper">如果你的 Bot 跑在 Docker 裡，請用這個（透過 host.docker.internal 連回主機）。</div>
+                </div>
+
+                <div class="divider"></div>
+                <div class="card-title">一鍵貼給 Bot 的 Prompt</div>
+                <div class="row">
+                  <textarea id="botPrompt" rows="8" readonly placeholder="按上面的『取得 Join Token』後，這裡會生成一段可以直接貼給 Bot 的 prompt。"></textarea>
+                  <div class="row-inline">
+                    <button class="btn" id="copyBotPrompt">複製整段 Prompt</button>
+                    <button class="btn btn-ghost" id="copyBotPromptDocker">複製（Docker 版）</button>
+                  </div>
+                  <div class="helper">你可以把整段貼到 Telegram。Bot 只要照做就能完成綁定、切到 H-Mode、開始移動/打怪。</div>
+                </div>
+                <div class="divider"></div>
+                <div class="helper">進階：Bot 也可以根據你的 context 來精煉分類帽結果（職業/技能敘事）。</div>
+              </section>
+            </div>
+          </div>
+        </aside>
+      </main>
+    </div>
+
+    <div class="modal" id="onboarding" aria-hidden="true">
+      <div class="modal-card" role="dialog" aria-modal="true" aria-label="Welcome">
+        <div class="modal-title">歡迎來到 Clawtown</div>
+        <div class="modal-text">
+          先用手動模式走走看。去「分類帽」拿到你的職業與專屬招式，然後連結你的 CloudBot 解鎖 H-Mode（自動移動/聊天/打怪）。
+        </div>
+        <div class="modal-actions">
+          <button class="btn" id="onboardingStart">進入小鎮</button>
+          <button class="btn btn-ghost" id="onboardingGoHat">先去分類帽</button>
+        </div>
+        <div class="modal-foot">小技巧：本機開兩個分頁就能 demo 多人互動。</div>
+      </div>
+    </div>
+
+    <script src="/app.js"></script>
+  </body>
+</html>

@@ -1,0 +1,17 @@
+# dependencies
+node_modules/
+
+# test artifacts
+test-results/
+playwright-report/
+
+# logs
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+
+# local env
+.env
+.env.*
