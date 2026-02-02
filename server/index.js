@@ -55,6 +55,7 @@ function exportPlayerProgress(p) {
     zenny: Math.max(0, Math.floor(Number(p.zenny) || 0)),
     inventory: Array.isArray(p.inventory) ? p.inventory.slice(0, 200) : [],
     equipment: p.equipment || { weapon: null, armor: null, accessory: null },
+    meta: p.meta || { kills: 0, crafts: 0, pickups: 0 },
     jobSkill: p.jobSkill || null,
     signatureSpell: p.signatureSpell || null,
   };
@@ -83,6 +84,13 @@ function importPlayerProgress(p, data) {
   }
   if (data.jobSkill && typeof data.jobSkill === "object") p.jobSkill = data.jobSkill;
   if (data.signatureSpell && typeof data.signatureSpell === "object") p.signatureSpell = data.signatureSpell;
+  if (data.meta && typeof data.meta === "object") {
+    p.meta = {
+      kills: Math.max(0, Math.floor(Number(data.meta.kills) || 0)),
+      crafts: Math.max(0, Math.floor(Number(data.meta.crafts) || 0)),
+      pickups: Math.max(0, Math.floor(Number(data.meta.pickups) || 0)),
+    };
+  }
 }
 
 function markDirty(p) {
@@ -411,6 +419,7 @@ function getOrCreatePlayer(playerId, name) {
       zenny: 0,
       inventory: [],
       equipment: { weapon: null, armor: null, accessory: null },
+      meta: { kills: 0, crafts: 0, pickups: 0 },
       statPoints: 0,
       job: "novice",
       jobSkill: {
@@ -491,6 +500,7 @@ function toPublicPlayer(p) {
     statPoints: p.statPoints,
     zenny: Math.max(0, Math.floor(Number(p.zenny) || 0)),
     stats: playerStats(p),
+    meta: p.meta || { kills: 0, crafts: 0, pickups: 0 },
     job: p.job,
     equipment: {
       weapon: p.equipment?.weapon || null,
@@ -692,6 +702,9 @@ function applyDamage(p, m, dmg) {
     m.respawnAt = nowMs() + 6000;
     killed = true;
     maybeDropLoot(p, m);
+    if (!p.meta) p.meta = { kills: 0, crafts: 0, pickups: 0 };
+    p.meta.kills = Math.max(0, Math.floor(Number(p.meta.kills) || 0) + 1);
+    markDirty(p);
     pushChat({ kind: "system", text: `${p.name} defeated ${m.name}! (+8 XP)`, from: { id: "system", name: "Town" } });
     p.xp += 8;
     markDirty(p);
@@ -1446,6 +1459,9 @@ function tryAutoPickup(p) {
     // pick up
     drops.delete(id);
     addToInventory(p, d.itemId, d.qty);
+    if (!p.meta) p.meta = { kills: 0, crafts: 0, pickups: 0 };
+    p.meta.pickups = Math.max(0, Math.floor(Number(p.meta.pickups) || 0) + 1);
+    markDirty(p);
     const def = getItemDef(d.itemId);
     const name = def ? def.name : d.itemId;
     pushChat({ kind: "system", text: `${p.name} picked up ${name}${d.qty > 1 ? ` x${d.qty}` : ""}.`, from: { id: "system", name: "Town" } });
@@ -1556,6 +1572,9 @@ wss.on("connection", (ws, req) => {
       const rewardId = rollCraftReward();
       addToInventory(player, rewardId, 1);
       maybeAutoEquipForBot(player, rewardId, 'crafted');
+      if (!player.meta) player.meta = { kills: 0, crafts: 0, pickups: 0 };
+      player.meta.crafts = Math.max(0, Math.floor(Number(player.meta.crafts) || 0) + 1);
+      markDirty(player);
       const def = getItemDef(rewardId);
       pushChat({ kind: "system", text: `${player.name} crafted ${def ? def.name : rewardId}!`, from: { id: "system", name: "Town" } });
       pushFx({ type: "guard", x: player.x, y: player.y, byPlayerId: player.id, payload: { craft: true, rewardId } });

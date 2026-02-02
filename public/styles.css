@@ -795,3 +795,28 @@ textarea {
   display: flex;
   gap: 8px;
 }
+
+.achievements {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.ach {
+  border: 1px solid rgba(19, 27, 42, 0.12);
+  background: rgba(255, 255, 255, 0.72);
+  border-radius: 12px;
+  padding: 10px 12px;
+}
+
+.ach-title {
+  font-size: 13px;
+  color: rgba(19, 27, 42, 0.92);
+}
+
+.ach-sub {
+  margin-top: 2px;
+  font-size: 12px;
+  color: rgba(19, 27, 42, 0.6);
+}
