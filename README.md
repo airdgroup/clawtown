@@ -146,6 +146,10 @@ npm run test:ui:update
 
 日常操作手冊（關機後快速復原）：`RUNBOOK.md`
 
+產品/遊戲設計：`DESIGN.md`
+
+工程/里程碑追蹤：`ROADMAP.md`
+
 Moltbot Closed Loop（Playwright + 自動打怪）
 
 對應腳本在 Moltbot repo：

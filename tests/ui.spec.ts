@@ -584,3 +584,98 @@ test('Two players can chat (local multiplayer)', async ({ browser }) => {
   await ctxA.close();
   await ctxB.close();
 });
+
+test('Party: create/join and share XP on elite kill', async ({ browser }) => {
+  const ctxA = await browser.newContext({ viewport: { width: 1200, height: 780 } });
+  const ctxB = await browser.newContext({ viewport: { width: 1200, height: 780 } });
+  const a = await ctxA.newPage();
+  const b = await ctxB.newPage();
+
+  await resetWorld(a);
+
+  await a.goto('/');
+  await b.goto('/');
+  await waitForFonts(a);
+  await waitForFonts(b);
+  await closeOnboarding(a);
+  await closeOnboarding(b);
+
+  const playerA = await a.evaluate(() => JSON.parse(localStorage.getItem('clawtown.player') || 'null')?.playerId);
+  const playerB = await b.evaluate(() => JSON.parse(localStorage.getItem('clawtown.player') || 'null')?.playerId);
+  expect(playerA).toBeTruthy();
+  expect(playerB).toBeTruthy();
+
+  // Link both to get bot tokens.
+  const joinA = await a.request.post('/api/join-codes', { data: { playerId: playerA } });
+  const codeA = (await joinA.json()).joinCode;
+  const tokA = (await (await a.request.post('/api/bot/link', { data: { joinCode: codeA } })).json()).botToken;
+
+  const joinB = await b.request.post('/api/join-codes', { data: { playerId: playerB } });
+  const codeB = (await joinB.json()).joinCode;
+  const tokB = (await (await b.request.post('/api/bot/link', { data: { joinCode: codeB } })).json()).botToken;
+
+  // Create party on A, generate join code, join with B via UI.
+  await a.locator('.ui-tab[data-tab="party"]').click();
+  await a.locator('#partyCreate').click();
+  await a.locator('#partyMakeCode').click();
+  await a.waitForTimeout(250);
+  const pcode = await a.locator('#partyCode').inputValue();
+  expect(pcode).toMatch(/[A-Z2-9]{6}/);
+
+  await b.locator('.ui-tab[data-tab="party"]').click();
+  await b.locator('#partyJoinCode').fill(pcode);
+  await b.locator('#partyJoin').click();
+
+  // Wait until party is visible with 2 members.
+  await a.waitForFunction(() => {
+    const st = (window as any).__ct?.state;
+    const you = (window as any).__ct?.you;
+    if (!st || !you) return false;
+    const party = (st.parties || []).find((p: any) => p && p.id === you.partyId);
+    return party && Array.isArray(party.members) && party.members.length === 2;
+  });
+
+  // Summon elite (leader-only) + cost.
+  await a.request.post('/api/debug/teleport', { data: { playerId: playerA, x: 520, y: 300 } });
+  await b.request.post('/api/debug/teleport', { data: { playerId: playerB, x: 520, y: 300 } });
+  await a.request.post('/api/debug/grant-item', { data: { playerId: playerA, itemId: 'zenny', qty: 30 } });
+  await a.locator('#partySummon').click();
+
+  // Elite should appear.
+  await a.waitForFunction(() => {
+    const st = (window as any).__ct?.state;
+    if (!st) return false;
+    return (st.monsters || []).some((m: any) => m && m.kind === 'elite' && m.alive);
+  });
+
+  // Shared XP on elite kill (deterministic): spawn a 1hp elite on the party and kill it.
+  await a.request.post('/api/debug/spawn-monster', { data: { id: 'm_party_elite', kind: 'elite', name: 'Party Elite', x: 520, y: 300, maxHp: 1, hp: 1 } });
+
+  const xpA0 = Number((await (await a.request.get('/api/bot/me', { headers: { Authorization: `Bearer ${tokA}` } })).json()).player?.xp || 0);
+  const xpB0 = Number((await (await b.request.get('/api/bot/me', { headers: { Authorization: `Bearer ${tokB}` } })).json()).player?.xp || 0);
+
+  await a.request.post('/api/bot/cast', { headers: { Authorization: `Bearer ${tokA}` }, data: { spell: 'signature' } });
+  await a.waitForTimeout(300);
+
+  const xpA1 = Number((await (await a.request.get('/api/bot/me', { headers: { Authorization: `Bearer ${tokA}` } })).json()).player?.xp || 0);
+  const xpB1 = Number((await (await b.request.get('/api/bot/me', { headers: { Authorization: `Bearer ${tokB}` } })).json()).player?.xp || 0);
+
+  expect(xpA1).toBeGreaterThanOrEqual(xpA0 + 30);
+  expect(xpB1).toBeGreaterThanOrEqual(xpB0 + 30);
+});
+
+test('Party: invalid invite code is rejected', async ({ browser }) => {
+  const ctx = await browser.newContext({ viewport: { width: 1200, height: 780 } });
+  const p = await ctx.newPage();
+
+  await resetWorld(p);
+  await p.goto('/');
+  await waitForFonts(p);
+  await closeOnboarding(p);
+
+  await p.locator('.ui-tab[data-tab="party"]').click();
+  await p.locator('#partyJoinCode').fill('AAAAAA');
+  await p.locator('#partyJoin').click();
+
+  await expect(p.locator('#status')).toContainText('隊伍');
+});

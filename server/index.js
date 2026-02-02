@@ -58,6 +58,7 @@ function exportPlayerProgress(p) {
     meta: p.meta || { kills: 0, crafts: 0, pickups: 0 },
     jobSkill: p.jobSkill || null,
     signatureSpell: p.signatureSpell || null,
+    partyId: p.partyId || null,
   };
 }
 
@@ -90,6 +91,11 @@ function importPlayerProgress(p, data) {
       crafts: Math.max(0, Math.floor(Number(data.meta.crafts) || 0)),
       pickups: Math.max(0, Math.floor(Number(data.meta.pickups) || 0)),
     };
+  }
+
+  if (data.partyId) {
+    // party is not persisted yet (social state is transient), ignore.
+    p.partyId = null;
   }
 }
 
@@ -188,6 +194,80 @@ const joinCodes = new Map(); // joinCode -> { playerId, expiresAt }
 const monsters = new Map(); // monsterId -> monster
 
 const drops = new Map(); // dropId -> drop
+
+const parties = new Map(); // partyId -> { id, leaderId, members:Set(playerId) }
+const partyJoinCodes = new Map(); // joinCode -> { partyId, expiresAt }
+
+function createParty(leaderId) {
+  const id = randomToken('party');
+  parties.set(id, { id, leaderId, members: new Set([leaderId]), lastSummonAt: 0 });
+  return id;
+}
+
+function getParty(partyId) {
+  const p = parties.get(String(partyId || ''));
+  return p || null;
+}
+
+function playerPartyId(p) {
+  return p && p.partyId ? String(p.partyId) : null;
+}
+
+function leaveParty(playerId) {
+  const pid = String(playerId || '').trim();
+  if (!pid) return;
+  for (const party of parties.values()) {
+    if (!party.members.has(pid)) continue;
+    party.members.delete(pid);
+    // leader leaves: assign a new leader if possible
+    if (party.leaderId === pid) {
+      const next = party.members.values().next();
+      party.leaderId = next && !next.done ? next.value : null;
+    }
+    if (!party.leaderId || party.members.size === 0) {
+      parties.delete(party.id);
+    }
+    return;
+  }
+}
+
+function joinParty(playerId, partyId) {
+  const pid = String(playerId || '').trim();
+  const party = getParty(partyId);
+  if (!pid || !party) return false;
+  // ensure player isn't in a party already
+  leaveParty(pid);
+  party.members.add(pid);
+  return true;
+}
+
+function createPartyJoinCode(partyId) {
+  const party = getParty(partyId);
+  if (!party) return null;
+  // one active code per party
+  for (const [code, v] of partyJoinCodes.entries()) {
+    if (v.partyId === party.id) partyJoinCodes.delete(code);
+  }
+  const code = randomCode(6);
+  partyJoinCodes.set(code, { partyId: party.id, expiresAt: nowMs() + 5 * 60 * 1000 });
+  return code;
+}
+
+function cleanupExpiredPartyCodes() {
+  const t = nowMs();
+  for (const [code, rec] of partyJoinCodes.entries()) {
+    if (t > rec.expiresAt) partyJoinCodes.delete(code);
+  }
+}
+
+function toPublicParty(party) {
+  if (!party) return null;
+  const members = Array.from(party.members)
+    .map((id) => players.get(id))
+    .filter(Boolean)
+    .map((p) => ({ id: p.id, name: p.name, level: p.level, job: p.job, hp: p.hp, maxHp: p.maxHp, mode: p.mode }));
+  return { id: party.id, leaderId: party.leaderId, members };
+}
 
 const ITEM_CATALOG = {
   zenny: { id: "zenny", name: "Zeny", slot: "currency", stackable: true, rarity: "common", stats: {} },
@@ -444,6 +524,7 @@ function getOrCreatePlayer(playerId, name) {
       lastCastAt: 0,
       connectedAt: nowMs(),
       lastSeenAt: nowMs(),
+      partyId: null,
       _dirty: false,
       _lastPersistAt: 0,
     };
@@ -501,6 +582,7 @@ function toPublicPlayer(p) {
     zenny: Math.max(0, Math.floor(Number(p.zenny) || 0)),
     stats: playerStats(p),
     meta: p.meta || { kills: 0, crafts: 0, pickups: 0 },
+    partyId: p.partyId || null,
     job: p.job,
     equipment: {
       weapon: p.equipment?.weapon || null,
@@ -586,6 +668,11 @@ function tickMonsters() {
   const t = nowMs();
   for (const m of monsters.values()) {
     if (!m.alive) continue;
+
+    if (m.kind === 'elite') {
+      // elites don't wander (v1)
+      continue;
+    }
 
     if (!Number.isFinite(m.vx) || !Number.isFinite(m.vy)) {
       m.vx = Math.random() < 0.5 ? -1 : 1;
@@ -680,9 +767,21 @@ function rollSlimeLoot() {
   return out;
 }
 
+function rollEliteLoot() {
+  const out = [];
+  out.push({ itemId: "zenny", qty: 12 + Math.floor(Math.random() * 10) });
+  out.push({ itemId: "jelly", qty: 2 + Math.floor(Math.random() * 2) });
+  // guaranteed one equipment
+  const eq = ["sword_1", "bow_1", "armor_1", "ring_1"];
+  out.push({ itemId: eq[Math.floor(Math.random() * eq.length)], qty: 1 });
+  // small chance extra
+  if (Math.random() < 0.25) out.push({ itemId: "dagger_1", qty: 1 });
+  return out;
+}
+
 function maybeDropLoot(p, m) {
   if (!p || !m) return;
-  const items = m.kind === "slime" ? rollSlimeLoot() : [];
+  const items = m.kind === "elite" ? rollEliteLoot() : m.kind === "slime" ? rollSlimeLoot() : [];
   for (const it of items) {
     spawnDrop({ x: m.x + (Math.random() - 0.5) * 16, y: m.y + (Math.random() - 0.5) * 16, itemId: it.itemId, qty: it.qty, byMonsterId: m.id });
   }
@@ -701,22 +800,42 @@ function applyDamage(p, m, dmg) {
     m.alive = false;
     m.respawnAt = nowMs() + 6000;
     killed = true;
-    maybeDropLoot(p, m);
-    if (!p.meta) p.meta = { kills: 0, crafts: 0, pickups: 0 };
-    p.meta.kills = Math.max(0, Math.floor(Number(p.meta.kills) || 0) + 1);
-    markDirty(p);
-    pushChat({ kind: "system", text: `${p.name} defeated ${m.name}! (+8 XP)`, from: { id: "system", name: "Town" } });
-    p.xp += 8;
-    markDirty(p);
-    const newLevel = levelForXp(p.xp);
-    if (newLevel > p.level) {
-      p.level = newLevel;
-      p.statPoints += 1;
-      p.maxHp += 2;
-      p.hp = p.maxHp;
-      pushChat({ kind: "system", text: `${p.name} reached Level ${p.level}!`, from: { id: "system", name: "Town" } });
-      markDirty(p);
+
+    // Party share: nearby party members also get the kill dopamine.
+    const baseXp = m.kind === 'elite' ? 30 : 8;
+    const shareR2 = Math.pow(8 * WORLD.tileSize, 2);
+    const killers = [];
+    if (p && p.partyId) {
+      const party = getParty(p.partyId);
+      if (party) {
+        for (const mid of party.members) {
+          const mp = players.get(mid);
+          if (!mp) continue;
+          if (dist2(mp.x, mp.y, m.x, m.y) > shareR2) continue;
+          killers.push(mp);
+        }
+      }
     }
+    if (killers.length === 0) killers.push(p);
+
+    for (const kp of killers) {
+      maybeDropLoot(kp, m);
+      if (!kp.meta) kp.meta = { kills: 0, crafts: 0, pickups: 0 };
+      kp.meta.kills = Math.max(0, Math.floor(Number(kp.meta.kills) || 0) + 1);
+      kp.xp += baseXp;
+      markDirty(kp);
+      const newLevel = levelForXp(kp.xp);
+      if (newLevel > kp.level) {
+        kp.level = newLevel;
+        kp.statPoints += 1;
+        kp.maxHp += 2;
+        kp.hp = kp.maxHp;
+        pushChat({ kind: "system", text: `${kp.name} reached Level ${kp.level}!`, from: { id: "system", name: "Town" } });
+        markDirty(kp);
+      }
+    }
+
+    pushChat({ kind: "system", text: `${p.name} defeated ${m.name}! (+${baseXp} XP)`, from: { id: "system", name: "Town" } });
   }
 
   return { ok: true, dealt, hp: m.hp, alive: m.alive, killed };
@@ -1275,6 +1394,7 @@ app.get("/api/bot/world", (req, res) => {
     players: Array.from(players.values()).map(toPublicPlayer),
     monsters: Array.from(monsters.values()).map(toPublicMonster),
     drops: Array.from(drops.values()).map(toPublicDrop),
+    parties: Array.from(parties.values()).map(toPublicParty).filter(Boolean),
     board: boardPosts.slice(-20),
     chats: relevantChats,
     hat: {
@@ -1296,6 +1416,57 @@ app.post("/api/bot/mode", (req, res) => {
   auth.player.mode = mode;
   if (mode === "manual") auth.player.goal = null;
   res.json({ ok: true, player: toPublicPlayer(auth.player) });
+});
+
+app.post("/api/bot/party/create", (req, res) => {
+  const auth = authBot(req);
+  if (!auth) return res.status(401).json({ ok: false, error: "unauthorized" });
+  const p = auth.player;
+  if (p.partyId) return res.json({ ok: true, partyId: p.partyId });
+  const id = createParty(p.id);
+  p.partyId = id;
+  markDirty(p);
+  res.json({ ok: true, partyId: id });
+});
+
+app.post("/api/bot/party/code", (req, res) => {
+  const auth = authBot(req);
+  if (!auth) return res.status(401).json({ ok: false, error: "unauthorized" });
+  const p = auth.player;
+  if (!p.partyId) return res.status(400).json({ ok: false, error: "not in party" });
+  const party = getParty(p.partyId);
+  if (!party) return res.status(404).json({ ok: false, error: "party missing" });
+  if (party.leaderId !== p.id) return res.status(403).json({ ok: false, error: "not leader" });
+  const code = createPartyJoinCode(p.partyId);
+  res.json({ ok: true, joinCode: code, expiresAt: partyJoinCodes.get(code).expiresAt });
+});
+
+app.post("/api/bot/party/join", (req, res) => {
+  const auth = authBot(req);
+  if (!auth) return res.status(401).json({ ok: false, error: "unauthorized" });
+  const code = String(req.body?.joinCode || "").trim();
+  const rec = partyJoinCodes.get(code);
+  if (!rec) return res.status(400).json({ ok: false, error: "invalid code" });
+  if (nowMs() > rec.expiresAt) {
+    partyJoinCodes.delete(code);
+    return res.status(400).json({ ok: false, error: "expired code" });
+  }
+  const ok = joinParty(auth.player.id, rec.partyId);
+  if (!ok) return res.status(404).json({ ok: false, error: "party missing" });
+  auth.player.partyId = rec.partyId;
+  markDirty(auth.player);
+  res.json({ ok: true, partyId: rec.partyId });
+});
+
+app.post("/api/bot/party/leave", (req, res) => {
+  const auth = authBot(req);
+  if (!auth) return res.status(401).json({ ok: false, error: "unauthorized" });
+  const p = auth.player;
+  if (!p.partyId) return res.json({ ok: true });
+  leaveParty(p.id);
+  p.partyId = null;
+  markDirty(p);
+  res.json({ ok: true });
 });
 
 app.post("/api/bot/interrupt", (req, res) => {
@@ -1439,6 +1610,7 @@ function currentState() {
     players: Array.from(players.values()).map(toPublicPlayer),
     monsters: Array.from(monsters.values()).map(toPublicMonster),
     drops: Array.from(drops.values()).map(toPublicDrop),
+    parties: Array.from(parties.values()).map(toPublicParty).filter(Boolean),
     board: boardPosts.slice(-20),
     chats: chats.slice(-35),
   };
@@ -1653,6 +1825,107 @@ wss.on("connection", (ws, req) => {
       if (!post) return;
       return;
     }
+
+    if (type === "party_create") {
+      if (player.partyId) return;
+      const partyId = createParty(player.id);
+      player.partyId = partyId;
+      markDirty(player);
+      pushChat({ kind: "system", text: `${player.name} formed a party.`, from: { id: "system", name: "Town" } });
+      return;
+    }
+
+    if (type === "party_leave") {
+      if (!player.partyId) return;
+      leaveParty(player.id);
+      player.partyId = null;
+      markDirty(player);
+      pushChat({ kind: "system", text: `${player.name} left the party.`, from: { id: "system", name: "Town" } });
+      return;
+    }
+
+    if (type === "party_code") {
+      if (!player.partyId) {
+        send(ws, { type: "party_error", error: "隊伍：請先建立或加入隊伍" });
+        return;
+      }
+      const party = getParty(player.partyId);
+      if (!party || party.leaderId !== player.id) {
+        send(ws, { type: "party_error", error: "隊伍：只有隊長可以產生邀請碼" });
+        return;
+      }
+      const joinCode = createPartyJoinCode(player.partyId);
+      send(ws, { type: "party_code", joinCode });
+      return;
+    }
+
+    if (type === "party_join") {
+      const code = String(msg?.joinCode || "").trim().toUpperCase();
+      const rec = partyJoinCodes.get(code);
+      if (!rec) {
+        send(ws, { type: "party_error", error: "隊伍：邀請碼無效" });
+        return;
+      }
+      if (nowMs() > rec.expiresAt) {
+        partyJoinCodes.delete(code);
+        send(ws, { type: "party_error", error: "隊伍：邀請碼已過期" });
+        return;
+      }
+      const ok = joinParty(player.id, rec.partyId);
+      if (!ok) {
+        send(ws, { type: "party_error", error: "隊伍：隊伍不存在" });
+        return;
+      }
+      player.partyId = rec.partyId;
+      markDirty(player);
+      pushChat({ kind: "system", text: `${player.name} joined a party.`, from: { id: "system", name: "Town" } });
+      return;
+    }
+
+    if (type === "party_summon") {
+      if (!player.partyId) {
+        send(ws, { type: "party_error", error: "隊伍：請先加入隊伍" });
+        return;
+      }
+      const party = getParty(player.partyId);
+      if (!party || party.leaderId !== player.id) {
+        send(ws, { type: "party_error", error: "隊伍：只有隊長可以召喚" });
+        return;
+      }
+      const now = nowMs();
+      if (now - Number(party.lastSummonAt || 0) < 30_000) {
+        send(ws, { type: "party_error", error: "隊伍：召喚冷卻中" });
+        return;
+      }
+      const z = Math.max(0, Math.floor(Number(player.zenny) || 0));
+      if (z < 10) {
+        send(ws, { type: "party_error", error: "隊伍：需要 10 Zeny" });
+        return;
+      }
+      player.zenny = z - 10;
+      markDirty(player);
+      party.lastSummonAt = now;
+
+      const id = randomToken('m_elite');
+      monsters.set(id, {
+        id,
+        kind: 'elite',
+        name: 'King Poring',
+        x: clamp(player.x + 18, 0, (WORLD.width - 1) * WORLD.tileSize),
+        y: clamp(player.y, 0, (WORLD.height - 1) * WORLD.tileSize),
+        hp: 80,
+        maxHp: 80,
+        alive: true,
+        respawnAt: null,
+        vx: 0,
+        vy: 0,
+        nextWanderAt: now + 60_000,
+      });
+
+      pushChat({ kind: "system", text: `An elite appeared: King Poring!`, from: { id: "system", name: "Town" } });
+      pushFx({ type: "mark", x: player.x + 18, y: player.y, byPlayerId: player.id, payload: { elite: true } });
+      return;
+    }
   });
 
   ws.on("close", () => {
@@ -1707,6 +1980,7 @@ setInterval(() => {
   for (const [code, rec] of joinCodes.entries()) {
     if (t > rec.expiresAt) joinCodes.delete(code);
   }
+  cleanupExpiredPartyCodes();
 }, 2000);
 
 setInterval(tick, WORLD.tickMs);
