@@ -29,6 +29,38 @@ docker exec -w /Users/hejianzhi/Namecard/nai/sandbox-projects/moltbot/app moltbo
 '
 ```
 
+Quality Gates（推薦每次 milestone 都跑）
+
+1) Clawtown UI tests
+
+```bash
+cd /Users/hejianzhi/Namecard/github/clawtown
+npm run test:ui
+```
+
+2) Closed-loop E2E（連跑 3 次）
+
+```bash
+for i in 1 2 3; do
+  echo "--- e2e $i ---"
+  docker exec -w /Users/hejianzhi/Namecard/nai/sandbox-projects/moltbot/app moltbot-sandbox bash -lc '
+    export FNM_PATH="/home/agent/.local/share/fnm" && export PATH="$FNM_PATH:$PATH" && eval "$(fnm env)" && fnm use 22 &&
+    export MOLTBOT_STATE_DIR="/home/agent/.moltbot" &&
+    node ./scripts/clawtown-ui-e2e.mjs --baseUrl http://host.docker.internal:3000 --name MoltbotE2E --runForMs 20000
+  '
+done
+```
+
+3) Soak（10 分鐘 grinder）
+
+```bash
+docker exec -w /Users/hejianzhi/Namecard/nai/sandbox-projects/moltbot/app moltbot-sandbox bash -lc '
+  export FNM_PATH="/home/agent/.local/share/fnm" && export PATH="$FNM_PATH:$PATH" && eval "$(fnm env)" && fnm use 22 &&
+  export MOLTBOT_STATE_DIR="/home/agent/.moltbot" &&
+  node ./scripts/clawtown-grind.mjs --baseUrl http://host.docker.internal:3000 --name MoltbotSoak --runForMs 600000
+'
+```
+
 如果 docker 指令失敗（docker.sock / daemon error）
 
 - 先打開 Docker Desktop，等它 Running
