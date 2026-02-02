@@ -88,6 +88,117 @@ const joinCodes = new Map(); // joinCode -> { playerId, expiresAt }
 
 const monsters = new Map(); // monsterId -> monster
 
+const drops = new Map(); // dropId -> drop
+
+const ITEM_CATALOG = {
+  zenny: { id: "zenny", name: "Zeny", slot: "currency", stackable: true, rarity: "common", stats: {} },
+
+  jelly: { id: "jelly", name: "Poring Jelly", slot: "material", stackable: true, rarity: "common", stats: {} },
+  leaf: { id: "leaf", name: "Green Leaf", slot: "material", stackable: true, rarity: "common", stats: {} },
+
+  dagger_1: { id: "dagger_1", name: "Beginner Dagger", slot: "weapon", stackable: false, rarity: "common", stats: { atk: 1, aspd: 0.06, crit: 0.02 } },
+  sword_1: { id: "sword_1", name: "Training Sword", slot: "weapon", stackable: false, rarity: "common", stats: { atk: 2, def: 0 } },
+  bow_1: { id: "bow_1", name: "Feather Bow", slot: "weapon", stackable: false, rarity: "common", stats: { atk: 2, crit: 0.02 } },
+
+  armor_1: { id: "armor_1", name: "Cloth Armor", slot: "armor", stackable: false, rarity: "common", stats: { def: 1 } },
+  ring_1: { id: "ring_1", name: "Copper Ring", slot: "accessory", stackable: false, rarity: "common", stats: { atk: 1 } },
+};
+
+function getItemDef(itemId) {
+  return ITEM_CATALOG[String(itemId || "")] || null;
+}
+
+function toPublicDrop(d) {
+  const def = getItemDef(d.itemId);
+  return {
+    id: d.id,
+    itemId: d.itemId,
+    name: def ? def.name : d.itemId,
+    rarity: def ? def.rarity : "common",
+    x: Math.round(d.x),
+    y: Math.round(d.y),
+    qty: d.qty,
+    expiresAt: d.expiresAt,
+  };
+}
+
+function spawnDrop({ x, y, itemId, qty, byMonsterId }) {
+  const def = getItemDef(itemId);
+  if (!def) return null;
+  const drop = {
+    id: randomToken("drop"),
+    createdAt: new Date().toISOString(),
+    x: clamp(Number(x) || 0, 0, (WORLD.width - 1) * WORLD.tileSize),
+    y: clamp(Number(y) || 0, 0, (WORLD.height - 1) * WORLD.tileSize),
+    itemId: def.id,
+    qty: Math.max(1, Math.floor(Number(qty) || 1)),
+    byMonsterId: byMonsterId || null,
+    expiresAt: nowMs() + 45_000,
+  };
+  drops.set(drop.id, drop);
+  return drop;
+}
+
+function addToInventory(p, itemId, qty) {
+  const def = getItemDef(itemId);
+  if (!p || !def) return false;
+  const n = Math.max(1, Math.floor(Number(qty) || 1));
+  if (!Array.isArray(p.inventory)) p.inventory = [];
+
+  if (def.id === "zenny") {
+    p.zenny = Math.max(0, Math.floor(Number(p.zenny) || 0) + n);
+    return true;
+  }
+
+  if (def.stackable) {
+    const row = p.inventory.find((it) => it && it.itemId === def.id);
+    if (row) row.qty = Math.max(1, Math.floor(Number(row.qty) || 1) + n);
+    else p.inventory.push({ itemId: def.id, qty: n });
+    return true;
+  }
+
+  for (let i = 0; i < n; i++) p.inventory.push({ itemId: def.id, qty: 1 });
+  return true;
+}
+
+function equipItem(p, itemId) {
+  const def = getItemDef(itemId);
+  if (!p || !def) return { ok: false, error: "unknown item" };
+  if (!['weapon', 'armor', 'accessory'].includes(def.slot)) return { ok: false, error: "not equippable" };
+  if (!Array.isArray(p.inventory) || !p.inventory.some((it) => it && it.itemId === def.id)) {
+    return { ok: false, error: "not owned" };
+  }
+  if (!p.equipment) p.equipment = { weapon: null, armor: null, accessory: null };
+  const slotKey = def.slot;
+  p.equipment[slotKey] = def.id;
+  return { ok: true, slot: slotKey, itemId: def.id };
+}
+
+function playerStats(p) {
+  const equip = p && p.equipment ? p.equipment : {};
+  const weapon = getItemDef(equip.weapon);
+  const armor = getItemDef(equip.armor);
+  const acc = getItemDef(equip.accessory);
+
+  const statFrom = (def) => (def && def.stats ? def.stats : {});
+  const w = statFrom(weapon);
+  const a = statFrom(armor);
+  const r = statFrom(acc);
+
+  const atkBase =
+    p.job === "mage" ? 3 :
+      p.job === "archer" ? 3 :
+        p.job === "knight" ? 4 :
+          p.job === "assassin" ? 3 :
+            p.job === "bard" ? 2 : 2;
+
+  const atk = atkBase + (w.atk || 0) + (a.atk || 0) + (r.atk || 0);
+  const def = (a.def || 0) + (w.def || 0) + (r.def || 0);
+  const crit = Math.max(0, (w.crit || 0) + (a.crit || 0) + (r.crit || 0));
+  const aspd = Math.max(0, (w.aspd || 0) + (a.aspd || 0) + (r.aspd || 0));
+  return { atk, def, crit, aspd };
+}
+
 const boardPosts = []; // newest last
 const chats = []; // newest last
 const fxEvents = []; // ephemeral; stored briefly for late join
@@ -112,6 +223,9 @@ function getOrCreatePlayer(playerId, name) {
       maxHp: 30,
       level: 1,
       xp: 0,
+      zenny: 0,
+      inventory: [],
+      equipment: { weapon: null, armor: null, accessory: null },
       statPoints: 0,
       job: "novice",
       jobSkill: {
@@ -176,7 +290,25 @@ function toPublicPlayer(p) {
     xp: p.xp,
     xpToNext: xpToNext(p.level),
     statPoints: p.statPoints,
+    zenny: Math.max(0, Math.floor(Number(p.zenny) || 0)),
+    stats: playerStats(p),
     job: p.job,
+    equipment: {
+      weapon: p.equipment?.weapon || null,
+      armor: p.equipment?.armor || null,
+      accessory: p.equipment?.accessory || null,
+    },
+    inventory: (Array.isArray(p.inventory) ? p.inventory : []).slice(0, 80).map((it) => {
+      const def = getItemDef(it?.itemId);
+      return {
+        itemId: def ? def.id : String(it?.itemId || ""),
+        name: def ? def.name : String(it?.itemId || ""),
+        slot: def ? def.slot : "material",
+        rarity: def ? def.rarity : "common",
+        qty: Math.max(1, Math.floor(Number(it?.qty) || 1)),
+        stats: def ? def.stats : {},
+      };
+    }),
     jobSkill: {
       name: safeText(p.jobSkill?.name || "", 48),
       spell: String(p.jobSkill?.spell || "signature"),
@@ -321,12 +453,30 @@ function findNearestAliveMonster(x, y, maxDist) {
 
 function damageForPlayer(p) {
   if (!p) return 2;
-  if (p.job === "knight") return 5;
-  if (p.job === "archer") return 4;
-  if (p.job === "mage") return 6;
-  if (p.job === "bard") return 3;
-  if (p.job === "assassin") return 3;
-  return 2;
+  const st = playerStats(p);
+  return Math.max(1, Math.floor(st.atk));
+}
+
+function rollSlimeLoot() {
+  // v1 simple table
+  const out = [];
+  // always a bit of zeny
+  out.push({ itemId: "zenny", qty: 1 + Math.floor(Math.random() * 3) });
+  const r = Math.random();
+  if (r < 0.55) out.push({ itemId: "jelly", qty: 1 });
+  if (r < 0.22) out.push({ itemId: "leaf", qty: 1 });
+  if (r < 0.12) out.push({ itemId: "dagger_1", qty: 1 });
+  if (r < 0.07) out.push({ itemId: "armor_1", qty: 1 });
+  if (r < 0.04) out.push({ itemId: "ring_1", qty: 1 });
+  return out;
+}
+
+function maybeDropLoot(p, m) {
+  if (!p || !m) return;
+  const items = m.kind === "slime" ? rollSlimeLoot() : [];
+  for (const it of items) {
+    spawnDrop({ x: m.x + (Math.random() - 0.5) * 16, y: m.y + (Math.random() - 0.5) * 16, itemId: it.itemId, qty: it.qty, byMonsterId: m.id });
+  }
 }
 
 function applyDamage(p, m, dmg) {
@@ -342,6 +492,7 @@ function applyDamage(p, m, dmg) {
     m.alive = false;
     m.respawnAt = nowMs() + 6000;
     killed = true;
+    maybeDropLoot(p, m);
     pushChat({ kind: "system", text: `${p.name} defeated ${m.name}! (+8 XP)`, from: { id: "system", name: "Town" } });
     p.xp += 8;
     const newLevel = levelForXp(p.xp);
@@ -645,10 +796,62 @@ if (String(process.env.CT_TEST || "").trim() === "1") {
     botTokens.clear();
     joinCodes.clear();
     monsters.clear();
+    drops.clear();
     boardPosts.length = 0;
     chats.length = 0;
     fxEvents.length = 0;
     spawnInitialMonsters();
+    res.json({ ok: true });
+  });
+
+  app.post("/api/debug/teleport", (req, res) => {
+    const playerId = String(req.body?.playerId || "").trim();
+    const p = players.get(playerId);
+    if (!p) return res.status(404).json({ ok: false, error: "unknown playerId" });
+    const x = Number(req.body?.x);
+    const y = Number(req.body?.y);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return res.status(400).json({ ok: false, error: "invalid coords" });
+    p.x = clamp(x, 0, (WORLD.width - 1) * WORLD.tileSize);
+    p.y = clamp(y, 0, (WORLD.height - 1) * WORLD.tileSize);
+    p.goal = null;
+    res.json({ ok: true });
+  });
+
+  app.post("/api/debug/spawn-monster", (req, res) => {
+    const id = String(req.body?.id || randomToken("m")).trim();
+    const kind = String(req.body?.kind || "slime").trim().toLowerCase();
+    const name = safeText(req.body?.name || (kind === "slime" ? "Poring" : "Monster"), 24);
+    const x = Number(req.body?.x);
+    const y = Number(req.body?.y);
+    const maxHp = Math.max(1, Math.floor(Number(req.body?.maxHp || 10)));
+    const hp = Math.max(0, Math.floor(Number(req.body?.hp || maxHp)));
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return res.status(400).json({ ok: false, error: "invalid coords" });
+    monsters.set(id, {
+      id,
+      kind,
+      name,
+      x: clamp(x, 0, (WORLD.width - 1) * WORLD.tileSize),
+      y: clamp(y, 0, (WORLD.height - 1) * WORLD.tileSize),
+      hp,
+      maxHp,
+      alive: hp > 0,
+      respawnAt: null,
+      vx: 0,
+      vy: 0,
+      nextWanderAt: nowMs() + 5000,
+    });
+    res.json({ ok: true, id });
+  });
+
+  app.post("/api/debug/grant-item", (req, res) => {
+    const playerId = String(req.body?.playerId || "").trim();
+    const p = players.get(playerId);
+    if (!p) return res.status(404).json({ ok: false, error: "unknown playerId" });
+    const itemId = String(req.body?.itemId || "").trim();
+    const qty = Number(req.body?.qty || 1);
+    const def = getItemDef(itemId);
+    if (!def) return res.status(400).json({ ok: false, error: "unknown itemId" });
+    addToInventory(p, def.id, qty);
     res.json({ ok: true });
   });
 }
@@ -815,6 +1018,7 @@ app.get("/api/bot/world", (req, res) => {
     you: toPublicPlayer(p),
     players: Array.from(players.values()).map(toPublicPlayer),
     monsters: Array.from(monsters.values()).map(toPublicMonster),
+    drops: Array.from(drops.values()).map(toPublicDrop),
     board: boardPosts.slice(-20),
     chats: relevantChats,
     hat: {
@@ -976,9 +1180,40 @@ function currentState() {
     world: { width: WORLD.width, height: WORLD.height, tileSize: WORLD.tileSize },
     players: Array.from(players.values()).map(toPublicPlayer),
     monsters: Array.from(monsters.values()).map(toPublicMonster),
+    drops: Array.from(drops.values()).map(toPublicDrop),
     board: boardPosts.slice(-20),
     chats: chats.slice(-35),
   };
+}
+
+function tryAutoPickup(p) {
+  if (!p) return;
+  const pickupR2 = Math.pow(22, 2);
+  const t = nowMs();
+
+  for (const [id, d] of drops.entries()) {
+    if (d.expiresAt && t > d.expiresAt) {
+      drops.delete(id);
+      continue;
+    }
+    if (dist2(p.x, p.y, d.x, d.y) > pickupR2) continue;
+
+    // pick up
+    drops.delete(id);
+    addToInventory(p, d.itemId, d.qty);
+    const def = getItemDef(d.itemId);
+    const name = def ? def.name : d.itemId;
+    pushChat({ kind: "system", text: `${p.name} picked up ${name}${d.qty > 1 ? ` x${d.qty}` : ""}.`, from: { id: "system", name: "Town" } });
+    // tiny dopamine
+    p.xp += 1;
+    const newLevel = levelForXp(p.xp);
+    if (newLevel > p.level) {
+      p.level = newLevel;
+      p.statPoints += 1;
+      pushChat({ kind: "system", text: `${p.name} reached Level ${p.level}!`, from: { id: "system", name: "Town" } });
+    }
+    // allow multiple pickups per tick
+  }
 }
 
 wss.on("connection", (ws, req) => {
@@ -1047,6 +1282,17 @@ wss.on("connection", (ws, req) => {
       const allowed = new Set(["signature", "fireball", "hail", "arrow", "cleave", "flurry"]);
       const spell = allowed.has(spellRaw) ? spellRaw : "signature";
       player.jobSkill = { name, spell };
+      return;
+    }
+
+    if (type === "equip") {
+      const itemId = String(msg?.itemId || "").trim();
+      if (!itemId) return;
+      const out = equipItem(player, itemId);
+      if (out.ok) {
+        const def = getItemDef(itemId);
+        pushChat({ kind: "system", text: `${player.name} equipped ${def ? def.name : itemId}.`, from: { id: "system", name: "Town" } });
+      }
       return;
     }
 
@@ -1155,6 +1401,9 @@ function tick() {
         }
       }
     }
+
+    // auto pick up loot when nearby
+    tryAutoPickup(p);
   }
 
   broadcast({ type: "state", state: currentState() });

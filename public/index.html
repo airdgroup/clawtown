@@ -67,6 +67,7 @@
             <div class="ui-window-top">
               <div class="ui-tabs" role="tablist" aria-label="Panels">
                 <button class="ui-tab is-active" data-tab="character" role="tab" aria-selected="true">角色</button>
+                <button class="ui-tab" data-tab="inventory" role="tab" aria-selected="false">背包</button>
                 <button class="ui-tab" data-tab="hat" role="tab" aria-selected="false">分類帽</button>
                 <button class="ui-tab" data-tab="board" role="tab" aria-selected="false">公告板</button>
                 <button class="ui-tab" data-tab="chat" role="tab" aria-selected="false">聊天</button>
@@ -147,6 +148,39 @@
                   <button id="saveSkill4" class="btn">儲存技能 4</button>
                   <button id="resetSkill4" class="btn btn-ghost">重置</button>
                 </div>
+              </section>
+
+              <section class="tab" id="tab-inventory" data-tab="inventory" role="tabpanel">
+                <div class="card-title">背包</div>
+                <div class="row row-inline">
+                  <div class="pill" id="zenny">Zeny：0</div>
+                  <div class="pill" id="atk">ATK：0</div>
+                  <div class="pill" id="def">DEF：0</div>
+                </div>
+
+                <div class="divider"></div>
+                <div class="card-title">裝備</div>
+                <div class="row">
+                  <div class="equip-grid">
+                    <div class="equip-slot">
+                      <div class="equip-label">Weapon</div>
+                      <div class="equip-value" id="equipWeapon">—</div>
+                    </div>
+                    <div class="equip-slot">
+                      <div class="equip-label">Armor</div>
+                      <div class="equip-value" id="equipArmor">—</div>
+                    </div>
+                    <div class="equip-slot">
+                      <div class="equip-label">Accessory</div>
+                      <div class="equip-value" id="equipAccessory">—</div>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="divider"></div>
+                <div class="card-title">物品</div>
+                <div class="helper">打倒怪物會掉落物品，靠近會自動撿起。</div>
+                <div id="inventory" class="inventory"></div>
               </section>
 
               <section class="tab" id="tab-hat" data-tab="hat" role="tabpanel">

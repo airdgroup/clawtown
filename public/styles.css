@@ -728,3 +728,70 @@ textarea {
     grid-template-columns: 1fr;
   }
 }
+
+/* Inventory / Equipment */
+
+.equip-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+}
+
+.equip-slot {
+  border: 1px solid rgba(19, 27, 42, 0.12);
+  background: rgba(255, 255, 255, 0.72);
+  border-radius: 12px;
+  padding: 10px 12px;
+}
+
+.equip-label {
+  font-size: 12px;
+  color: rgba(19, 27, 42, 0.6);
+}
+
+.equip-value {
+  margin-top: 4px;
+  font-size: 13px;
+  color: rgba(19, 27, 42, 0.9);
+  font-family: var(--mono);
+}
+
+.inventory {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.inv-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border: 1px solid rgba(19, 27, 42, 0.12);
+  background: rgba(255, 255, 255, 0.72);
+  border-radius: 12px;
+  padding: 10px 12px;
+}
+
+.inv-left {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.inv-name {
+  font-size: 13px;
+  color: rgba(19, 27, 42, 0.92);
+}
+
+.inv-sub {
+  font-size: 12px;
+  color: rgba(19, 27, 42, 0.6);
+  font-family: var(--mono);
+}
+
+.inv-actions {
+  display: flex;
+  gap: 8px;
+}

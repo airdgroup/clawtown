@@ -74,6 +74,14 @@ const chatSend = document.getElementById("chatSend");
 
 const botLogEl = document.getElementById("botLog");
 
+const inventoryEl = document.getElementById("inventory");
+const zennyEl = document.getElementById("zenny");
+const atkEl = document.getElementById("atk");
+const defEl = document.getElementById("def");
+const equipWeaponEl = document.getElementById("equipWeapon");
+const equipArmorEl = document.getElementById("equipArmor");
+const equipAccessoryEl = document.getElementById("equipAccessory");
+
 const onboardingEl = document.getElementById("onboarding");
 const onboardingStart = document.getElementById("onboardingStart");
 const onboardingGoHat = document.getElementById("onboardingGoHat");
@@ -659,6 +667,15 @@ chatInput.addEventListener("keydown", (e) => {
   }
 });
 
+inventoryEl?.addEventListener("click", (e) => {
+  const btn = e.target && e.target.closest && e.target.closest("button[data-equip]");
+  if (!btn) return;
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  const itemId = btn.getAttribute("data-equip");
+  if (!itemId) return;
+  ws.send(JSON.stringify({ type: "equip", itemId }));
+});
+
 canvas.addEventListener("click", (e) => {
   if (!you) return;
   if (you.mode !== "manual") return;
@@ -747,6 +764,68 @@ function renderHeader() {
     const v = (you.jobSkill && you.jobSkill.spell) || "";
     if (!skill4SpellEl.value) skill4SpellEl.value = v;
   }
+
+  // inventory header
+  if (zennyEl) zennyEl.textContent = `Zeny：${you.zenny ?? 0}`;
+  if (atkEl) atkEl.textContent = `ATK：${Math.floor((you.stats && you.stats.atk) || 0)}`;
+  if (defEl) defEl.textContent = `DEF：${Math.floor((you.stats && you.stats.def) || 0)}`;
+
+  if (equipWeaponEl) equipWeaponEl.textContent = (you.equipment && you.equipment.weapon) ? (invNameFor(you.equipment.weapon) || you.equipment.weapon) : "—";
+  if (equipArmorEl) equipArmorEl.textContent = (you.equipment && you.equipment.armor) ? (invNameFor(you.equipment.armor) || you.equipment.armor) : "—";
+  if (equipAccessoryEl) equipAccessoryEl.textContent = (you.equipment && you.equipment.accessory) ? (invNameFor(you.equipment.accessory) || you.equipment.accessory) : "—";
+
+  renderInventory();
+}
+
+function invNameFor(itemId) {
+  if (!you || !Array.isArray(you.inventory)) return "";
+  const row = you.inventory.find((it) => it && it.itemId === itemId);
+  return row ? row.name : "";
+}
+
+function renderInventory() {
+  if (!inventoryEl || !you) return;
+  const items = Array.isArray(you.inventory) ? you.inventory : [];
+  if (items.length === 0) {
+    inventoryEl.innerHTML = '<div class="helper">背包是空的。去打史萊姆吧。</div>';
+    return;
+  }
+
+  const canEquip = (it) => it && (it.slot === 'weapon' || it.slot === 'armor' || it.slot === 'accessory');
+  const eq = (you.equipment || {});
+
+  inventoryEl.innerHTML = items
+    .slice(0, 80)
+    .map((it) => {
+      const qty = Math.max(1, Number(it.qty || 1));
+      const stats = it.stats || {};
+      const statBits = [];
+      if (stats.atk) statBits.push(`atk+${stats.atk}`);
+      if (stats.def) statBits.push(`def+${stats.def}`);
+      if (stats.crit) statBits.push(`crit+${Math.round(stats.crit * 100)}%`);
+      if (stats.aspd) statBits.push(`aspd+${Math.round(stats.aspd * 100)}%`);
+      const sub = [it.slot, qty > 1 ? `x${qty}` : null, statBits.length ? statBits.join(' ') : null].filter(Boolean).join(' · ');
+
+      let equipped = false;
+      if (it.slot === 'weapon' && eq.weapon === it.itemId) equipped = true;
+      if (it.slot === 'armor' && eq.armor === it.itemId) equipped = true;
+      if (it.slot === 'accessory' && eq.accessory === it.itemId) equipped = true;
+
+      const actions = canEquip(it)
+        ? `<div class="inv-actions">
+             <button class="btn btn-ghost" data-equip="${escapeHtml(it.itemId)}">${equipped ? '已裝備' : '裝備'}</button>
+           </div>`
+        : '';
+
+      return `<div class="inv-item">
+        <div class="inv-left">
+          <div class="inv-name">${escapeHtml(it.name || it.itemId || '')}</div>
+          <div class="inv-sub">${escapeHtml(sub)}</div>
+        </div>
+        ${actions}
+      </div>`;
+    })
+    .join('');
 }
 
 function draw() {
@@ -755,6 +834,8 @@ function draw() {
 
   const t = state.world.tileSize;
   drawTerrain(t);
+
+  drawDrops();
 
   // fx
   const now = Date.now();
@@ -1042,6 +1123,52 @@ function draw() {
     if (speech && Date.now() - speech.atMs < 4500) {
       drawSpeechBubble(p.x, avatarSpriteReady ? p.y - 86 : p.y - 44, speech.text);
     }
+    ctx.restore();
+  }
+}
+
+function drawDrops() {
+  const ds = (state && state.drops) || [];
+  if (!Array.isArray(ds) || ds.length === 0) return;
+  for (const d of ds) {
+    const x = d.x;
+    const y = d.y;
+    // small diamond
+    const rarity = String(d.rarity || 'common');
+    const fill =
+      rarity === 'rare'
+        ? 'rgba(37,99,235,0.85)'
+        : rarity === 'epic'
+          ? 'rgba(185,28,28,0.85)'
+          : 'rgba(184,135,27,0.85)';
+    ctx.save();
+    ctx.globalAlpha = 0.92;
+    ctx.fillStyle = fill;
+    ctx.strokeStyle = 'rgba(255,255,255,0.65)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(x, y - 7);
+    ctx.lineTo(x + 7, y);
+    ctx.lineTo(x, y + 7);
+    ctx.lineTo(x - 7, y);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    // sparkle
+    ctx.globalAlpha = 0.35;
+    ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(x - 10, y);
+    ctx.lineTo(x - 4, y);
+    ctx.moveTo(x + 4, y);
+    ctx.lineTo(x + 10, y);
+    ctx.moveTo(x, y - 10);
+    ctx.lineTo(x, y - 4);
+    ctx.moveTo(x, y + 4);
+    ctx.lineTo(x, y + 10);
+    ctx.stroke();
     ctx.restore();
   }
 }
