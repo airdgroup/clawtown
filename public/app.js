@@ -27,6 +27,15 @@ const killsEl = document.getElementById("kills");
 const craftsEl = document.getElementById("crafts");
 const pickupsEl = document.getElementById("pickups");
 const achievementsEl = document.getElementById("achievements");
+
+const partyCreateBtn = document.getElementById("partyCreate");
+const partyLeaveBtn = document.getElementById("partyLeave");
+const partyCodeInput = document.getElementById("partyCode");
+const partyMakeCodeBtn = document.getElementById("partyMakeCode");
+const partyJoinCodeInput = document.getElementById("partyJoinCode");
+const partyJoinBtn = document.getElementById("partyJoin");
+const partyMembersEl = document.getElementById("partyMembers");
+const partySummonBtn = document.getElementById("partySummon");
 const intentInput = document.getElementById("intent");
 const saveIntentBtn = document.getElementById("saveIntent");
 const castBtn = document.getElementById("cast");
@@ -688,6 +697,47 @@ craftJellyBtn?.addEventListener("click", () => {
   ws.send(JSON.stringify({ type: "craft", recipe: "jelly_3" }));
 });
 
+async function apiPost(path, body) {
+  const res = await fetch(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body || {}),
+  });
+  const text = await res.text();
+  try {
+    return { ok: res.ok, status: res.status, data: JSON.parse(text) };
+  } catch {
+    return { ok: res.ok, status: res.status, data: { raw: text } };
+  }
+}
+
+partyCreateBtn?.addEventListener("click", () => {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  ws.send(JSON.stringify({ type: "party_create" }));
+});
+
+partyLeaveBtn?.addEventListener("click", () => {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  ws.send(JSON.stringify({ type: "party_leave" }));
+});
+
+partyMakeCodeBtn?.addEventListener("click", () => {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  ws.send(JSON.stringify({ type: "party_code" }));
+});
+
+partyJoinBtn?.addEventListener("click", () => {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  const code = String(partyJoinCodeInput?.value || "").trim().toUpperCase();
+  if (!code) return;
+  ws.send(JSON.stringify({ type: "party_join", joinCode: code }));
+});
+
+partySummonBtn?.addEventListener("click", () => {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  ws.send(JSON.stringify({ type: "party_summon" }));
+});
+
 canvas.addEventListener("click", (e) => {
   if (!you) return;
   if (you.mode !== "manual") return;
@@ -793,6 +843,30 @@ function renderHeader() {
   if (equipAccessoryEl) equipAccessoryEl.textContent = (you.equipment && you.equipment.accessory) ? (invNameFor(you.equipment.accessory) || you.equipment.accessory) : "—";
 
   renderInventory();
+
+  renderParty();
+}
+
+function renderParty() {
+  if (!partyMembersEl || !state || !you) return;
+  const pid = you.partyId;
+  const parties = state.parties || [];
+  const party = pid ? parties.find((p) => p && p.id === pid) : null;
+  if (!party) {
+    partyMembersEl.innerHTML = '<div class="helper">尚未加入隊伍。</div>';
+    return;
+  }
+
+  const leaderId = party.leaderId;
+  const rows = (party.members || []).map((m) => {
+    const lead = m.id === leaderId ? '（隊長）' : '';
+    const mode = m.mode === 'agent' ? 'H-Mode' : '手動';
+    return `<div class="item">
+      <div class="meta"><span>${escapeHtml(m.name)} ${lead}</span><span>${escapeHtml(mode)} · Lv ${m.level}</span></div>
+      <div class="content">${escapeHtml(m.job)} · HP ${m.hp}/${m.maxHp}</div>
+    </div>`;
+  });
+  partyMembersEl.innerHTML = rows.join('');
 }
 
 function renderAchievements() {
@@ -1479,6 +1553,7 @@ function connect() {
       window.__ct.you = you;
       recentFx = (msg.recentFx || []).concat(recentFx);
       window.__ct.recentFx = recentFx;
+
       renderHeader();
       renderFeed(boardEl, state.board || [], "board");
       renderFeed(chatEl, state.chats || [], "chat");
@@ -1518,9 +1593,66 @@ function connect() {
       window.__ct.recentFx = recentFx;
       return;
     }
+
+    if (msg.type === "party_code") {
+      if (partyCodeInput) partyCodeInput.value = String(msg.joinCode || "");
+      statusEl.textContent = "隊伍：已產生邀請碼";
+      return;
+    }
+
+    if (msg.type === "party_error") {
+      statusEl.textContent = String(msg.error || "隊伍：操作失敗");
+      return;
+    }
   });
 }
 
+function loop() {
+  stepInput();
+  draw();
+  requestAnimationFrame(loop);
+}
+
+ensurePlayer().then(() => {
+  persist();
+  connect();
+  loop();
+});
+
+function openOnboardingIfNeeded() {
+  if (!onboardingEl) return;
+  const key = "clawtown.onboarding.v1";
+  if (localStorage.getItem(key)) return;
+
+  onboardingEl.classList.add("is-open");
+  onboardingEl.setAttribute("aria-hidden", "false");
+
+  function close() {
+    onboardingEl.classList.remove("is-open");
+    onboardingEl.setAttribute("aria-hidden", "true");
+    localStorage.setItem(key, "1");
+  }
+
+  onboardingStart?.addEventListener("click", () => close(), { once: true });
+  onboardingGoHat?.addEventListener(
+    "click",
+    () => {
+      close();
+      openTab("hat");
+    },
+    { once: true },
+  );
+
+  onboardingEl.addEventListener(
+    "click",
+    (e) => {
+      if (e.target === onboardingEl) close();
+    },
+    { once: true },
+  );
+}
+
+openOnboardingIfNeeded();
 function loop() {
   stepInput();
   draw();
