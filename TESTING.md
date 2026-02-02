@@ -25,6 +25,10 @@
   - `POST /api/debug/reset`
   - 用途：每個 test 開始前把 world state 重置，避免 test 互相污染
 
+另外也會提供：
+- `POST /api/debug/persist-flush`：強制把玩家資料寫到 disk
+- `POST /api/debug/restart-sim`：模擬 server 重啟（保留 disk 資料）
+
 常見問題
 
 1) Port 3100 被佔用

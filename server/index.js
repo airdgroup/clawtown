@@ -1,4 +1,5 @@
 const path = require("path");
+const fs = require("fs");
 const http = require("http");
 const crypto = require("crypto");
 
@@ -13,6 +14,96 @@ const WORLD = {
   tileSize: 32,
   tickMs: 100,
 };
+
+const DATA_DIR = process.env.CT_DATA_DIR || path.join(__dirname, "..", ".data");
+const PLAYER_DATA_DIR = path.join(DATA_DIR, "players");
+try {
+  fs.mkdirSync(PLAYER_DATA_DIR, { recursive: true });
+} catch {
+  // ignore
+}
+
+function playerDataPath(playerId) {
+  const id = String(playerId || "").replace(/[^a-zA-Z0-9_\-]/g, "");
+  return path.join(PLAYER_DATA_DIR, `${id}.json`);
+}
+
+function readJsonSafe(filePath) {
+  try {
+    const s = fs.readFileSync(filePath, "utf8");
+    return JSON.parse(s);
+  } catch {
+    return null;
+  }
+}
+
+function writeJsonAtomic(filePath, obj) {
+  const tmp = `${filePath}.tmp.${process.pid}.${Math.random().toString(16).slice(2)}`;
+  fs.writeFileSync(tmp, JSON.stringify(obj, null, 2));
+  fs.renameSync(tmp, filePath);
+}
+
+function exportPlayerProgress(p) {
+  return {
+    version: 1,
+    savedAt: new Date().toISOString(),
+    id: p.id,
+    name: p.name,
+    job: p.job,
+    level: p.level,
+    xp: p.xp,
+    zenny: Math.max(0, Math.floor(Number(p.zenny) || 0)),
+    inventory: Array.isArray(p.inventory) ? p.inventory.slice(0, 200) : [],
+    equipment: p.equipment || { weapon: null, armor: null, accessory: null },
+    jobSkill: p.jobSkill || null,
+    signatureSpell: p.signatureSpell || null,
+  };
+}
+
+function importPlayerProgress(p, data) {
+  if (!p || !data || typeof data !== "object") return;
+  if (typeof data.name === "string") p.name = normalizeName(data.name);
+  if (typeof data.job === "string") p.job = String(data.job);
+  if (Number.isFinite(Number(data.level))) p.level = Math.max(1, Math.floor(Number(data.level)));
+  if (Number.isFinite(Number(data.xp))) p.xp = Math.max(0, Math.floor(Number(data.xp)));
+  if (Number.isFinite(Number(data.zenny))) p.zenny = Math.max(0, Math.floor(Number(data.zenny)));
+
+  if (Array.isArray(data.inventory)) {
+    p.inventory = data.inventory
+      .filter((it) => it && typeof it.itemId === "string")
+      .slice(0, 200)
+      .map((it) => ({ itemId: String(it.itemId), qty: Math.max(1, Math.floor(Number(it.qty) || 1)) }));
+  }
+  if (data.equipment && typeof data.equipment === "object") {
+    p.equipment = {
+      weapon: data.equipment.weapon || null,
+      armor: data.equipment.armor || null,
+      accessory: data.equipment.accessory || null,
+    };
+  }
+  if (data.jobSkill && typeof data.jobSkill === "object") p.jobSkill = data.jobSkill;
+  if (data.signatureSpell && typeof data.signatureSpell === "object") p.signatureSpell = data.signatureSpell;
+}
+
+function markDirty(p) {
+  if (!p) return;
+  p._dirty = true;
+}
+
+function persistPlayerIfNeeded(p, force) {
+  if (!p) return;
+  const now = nowMs();
+  if (!p._dirty && !force) return;
+  const last = Number(p._lastPersistAt || 0);
+  if (!force && now - last < 5000) return;
+  try {
+    writeJsonAtomic(playerDataPath(p.id), exportPlayerProgress(p));
+    p._dirty = false;
+    p._lastPersistAt = now;
+  } catch {
+    // ignore
+  }
+}
 
 function nowMs() {
   return Date.now();
@@ -147,6 +238,7 @@ function addToInventory(p, itemId, qty) {
 
   if (def.id === "zenny") {
     p.zenny = Math.max(0, Math.floor(Number(p.zenny) || 0) + n);
+    markDirty(p);
     return true;
   }
 
@@ -154,10 +246,12 @@ function addToInventory(p, itemId, qty) {
     const row = p.inventory.find((it) => it && it.itemId === def.id);
     if (row) row.qty = Math.max(1, Math.floor(Number(row.qty) || 1) + n);
     else p.inventory.push({ itemId: def.id, qty: n });
+    markDirty(p);
     return true;
   }
 
   for (let i = 0; i < n; i++) p.inventory.push({ itemId: def.id, qty: 1 });
+  markDirty(p);
   return true;
 }
 
@@ -171,6 +265,7 @@ function equipItem(p, itemId) {
   if (!p.equipment) p.equipment = { weapon: null, armor: null, accessory: null };
   const slotKey = def.slot;
   p.equipment[slotKey] = def.id;
+  markDirty(p);
   return { ok: true, slot: slotKey, itemId: def.id };
 }
 
@@ -210,9 +305,10 @@ function getOrCreatePlayer(playerId, name) {
   if (!id) return null;
   let p = players.get(id);
   if (!p) {
+    const saved = readJsonSafe(playerDataPath(id));
     p = {
       id,
-      name: normalizeName(name),
+      name: normalizeName(name) || (saved && saved.name) || "Anonymous",
       x: Math.floor(WORLD.width / 2) * WORLD.tileSize,
       y: Math.floor(WORLD.height / 2) * WORLD.tileSize,
       facing: "down",
@@ -250,15 +346,29 @@ function getOrCreatePlayer(playerId, name) {
       lastCastAt: 0,
       connectedAt: nowMs(),
       lastSeenAt: nowMs(),
+      _dirty: false,
+      _lastPersistAt: 0,
     };
+
+    if (saved) {
+      importPlayerProgress(p, saved);
+      // ensure defaults
+      if (!p.jobSkill) p.jobSkill = defaultJobSkillForJob(p.job);
+      if (!p.signatureSpell) p.signatureSpell = { name: "", tagline: "", effect: "spark" };
+    }
+
     players.set(id, p);
     pushChat({
       kind: "system",
       text: `${p.name} entered the town.`,
       from: { id: "system", name: "Town" },
     });
+    // persist new player soon
+    markDirty(p);
+    persistPlayerIfNeeded(p, true);
   } else if (name) {
     p.name = normalizeName(name);
+    markDirty(p);
   }
   p.lastSeenAt = nowMs();
   return p;
@@ -495,6 +605,7 @@ function applyDamage(p, m, dmg) {
     maybeDropLoot(p, m);
     pushChat({ kind: "system", text: `${p.name} defeated ${m.name}! (+8 XP)`, from: { id: "system", name: "Town" } });
     p.xp += 8;
+    markDirty(p);
     const newLevel = levelForXp(p.xp);
     if (newLevel > p.level) {
       p.level = newLevel;
@@ -502,6 +613,7 @@ function applyDamage(p, m, dmg) {
       p.maxHp += 2;
       p.hp = p.maxHp;
       pushChat({ kind: "system", text: `${p.name} reached Level ${p.level}!`, from: { id: "system", name: "Town" } });
+      markDirty(p);
     }
   }
 
@@ -766,12 +878,14 @@ function setPlayerJobAndSignature(p, result) {
   if (result.job) p.job = result.job;
   // keep a sensible default job skill when job changes
   p.jobSkill = defaultJobSkillForJob(p.job);
+  markDirty(p);
   if (result.signature) {
     p.signatureSpell = {
       name: safeText(result.signature.name || "", 48),
       tagline: safeText(result.signature.tagline || "", 140),
       effect: String(result.signature.effect || "spark"),
     };
+    markDirty(p);
   }
 }
 
@@ -792,6 +906,46 @@ app.use(express.json({ limit: "256kb" }));
 
 if (String(process.env.CT_TEST || "").trim() === "1") {
   app.post("/api/debug/reset", (_req, res) => {
+    players.clear();
+    botTokens.clear();
+    joinCodes.clear();
+    monsters.clear();
+    drops.clear();
+    boardPosts.length = 0;
+    chats.length = 0;
+    fxEvents.length = 0;
+
+    try {
+      if (fs.existsSync(PLAYER_DATA_DIR)) {
+        for (const f of fs.readdirSync(PLAYER_DATA_DIR)) {
+          if (f.endsWith('.json')) {
+            try { fs.unlinkSync(path.join(PLAYER_DATA_DIR, f)); } catch { /* ignore */ }
+          }
+        }
+      }
+    } catch {
+      // ignore
+    }
+
+    spawnInitialMonsters();
+    res.json({ ok: true });
+  });
+
+  app.post("/api/debug/persist-flush", (req, res) => {
+    const playerId = String(req.body?.playerId || "").trim();
+    if (playerId) {
+      const p = players.get(playerId);
+      if (!p) return res.status(404).json({ ok: false, error: "unknown playerId" });
+      persistPlayerIfNeeded(p, true);
+      return res.json({ ok: true });
+    }
+    for (const p of players.values()) persistPlayerIfNeeded(p, true);
+    res.json({ ok: true });
+  });
+
+  app.post("/api/debug/restart-sim", (_req, res) => {
+    // Simulate a server restart: persist then clear in-memory state (but keep player data on disk).
+    for (const p of players.values()) persistPlayerIfNeeded(p, true);
     players.clear();
     botTokens.clear();
     joinCodes.clear();
@@ -1080,11 +1234,13 @@ app.post("/api/bot/chat", (req, res) => {
   p.lastChatAt = t;
   pushChat({ kind: "chat", text: req.body?.text, from: { id: p.id, name: p.name } });
   p.xp += 1;
+  markDirty(p);
   const newLevel = levelForXp(p.xp);
   if (newLevel > p.level) {
     p.level = newLevel;
     p.statPoints += 1;
     pushChat({ kind: "system", text: `${p.name} reached Level ${p.level}!`, from: { id: "system", name: "Town" } });
+    markDirty(p);
   }
   res.json({ ok: true });
 });
@@ -1206,11 +1362,13 @@ function tryAutoPickup(p) {
     pushChat({ kind: "system", text: `${p.name} picked up ${name}${d.qty > 1 ? ` x${d.qty}` : ""}.`, from: { id: "system", name: "Town" } });
     // tiny dopamine
     p.xp += 1;
+    markDirty(p);
     const newLevel = levelForXp(p.xp);
     if (newLevel > p.level) {
       p.level = newLevel;
       p.statPoints += 1;
       pushChat({ kind: "system", text: `${p.name} reached Level ${p.level}!`, from: { id: "system", name: "Town" } });
+      markDirty(p);
     }
     // allow multiple pickups per tick
   }
@@ -1338,11 +1496,13 @@ wss.on("connection", (ws, req) => {
       const created = pushChat({ kind: "chat", text: msg?.text, from: { id: player.id, name: player.name } });
       if (!created) return;
       player.xp += 1;
+      markDirty(player);
       const newLevel = levelForXp(player.xp);
       if (newLevel > player.level) {
         player.level = newLevel;
         player.statPoints += 1;
         pushChat({ kind: "system", text: `${player.name} reached Level ${player.level}!`, from: { id: "system", name: "Town" } });
+        markDirty(player);
       }
       return;
     }
@@ -1393,17 +1553,22 @@ function tick() {
         p.goal = null;
         // tiny dopamine: arriving gives XP
         p.xp += 1;
+        markDirty(p);
         const newLevel = levelForXp(p.xp);
         if (newLevel > p.level) {
           p.level = newLevel;
           p.statPoints += 1;
           pushChat({ kind: "system", text: `${p.name} reached Level ${p.level}!`, from: { id: "system", name: "Town" } });
+          markDirty(p);
         }
       }
     }
 
     // auto pick up loot when nearby
     tryAutoPickup(p);
+
+    // persist progress (throttled)
+    persistPlayerIfNeeded(p, false);
   }
 
   broadcast({ type: "state", state: currentState() });
