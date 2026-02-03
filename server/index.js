@@ -566,6 +566,11 @@ function getOrCreatePlayer(playerId, name) {
       },
       goal: null, // { x, y }
       linkedBot: false,
+      externalBotLastSeenAt: 0,
+      externalBotLastActionAt: 0,
+      _autoBotAt: 0,
+      _autoBotThoughtAt: 0,
+      _autoBotState: "",
       hat: {
         submittedAt: null,
         answers: null,
@@ -667,6 +672,10 @@ function toPublicPlayer(p) {
       effect: p.signatureSpell?.effect || "spark",
     },
     linkedBot: p.linkedBot,
+    bot: {
+      lastSeenAt: Number(p.externalBotLastSeenAt || 0) || null,
+      lastActionAt: Number(p.externalBotLastActionAt || 0) || null,
+    },
   };
 }
 
@@ -1221,7 +1230,71 @@ function authBot(req) {
   if (!playerId) return null;
   const p = players.get(playerId);
   if (!p) return null;
+  p.externalBotLastSeenAt = nowMs();
   return { token, player: p };
+}
+
+function canAutopilot(p) {
+  if (!p) return false;
+  if (p.mode !== 'agent') return false;
+  if (!p.linkedBot) return false;
+  const lastSeen = Number(p.externalBotLastSeenAt || 0);
+  // If an external bot is polling recently, assume it is in control.
+  return nowMs() - lastSeen > 8000;
+}
+
+function maybeAutopilot(p) {
+  if (!canAutopilot(p)) return;
+  const now = nowMs();
+  const last = Number(p._autoBotAt || 0);
+  if (now - last < 900) return;
+  p._autoBotAt = now;
+
+  const say = (text) => {
+    const gap = now - Number(p._autoBotThoughtAt || 0);
+    if (gap < 2500) return;
+    p._autoBotThoughtAt = now;
+    pushChat({ kind: 'chat', text: `[BOT] ${text}`, from: { id: p.id, name: p.name } });
+  };
+
+  // Prioritize nearby monsters.
+  const huntRange = 520;
+  const hitRange = 140;
+  const target = findNearestAliveMonster(p.x, p.y, huntRange);
+  if (target) {
+    const d2 = dist2(p.x, p.y, target.x, target.y);
+    if (d2 <= hitRange * hitRange) {
+      performCast(p, { spell: 'signature', source: 'autopilot' });
+      if (p._autoBotState !== `hit:${target.id}`) {
+        p._autoBotState = `hit:${target.id}`;
+        say(`攻擊 ${target.name}。`);
+      }
+      return;
+    }
+    if (!p.goal) {
+      p.goal = { x: target.x, y: target.y };
+      if (p._autoBotState !== `hunt:${target.id}`) {
+        p._autoBotState = `hunt:${target.id}`;
+        say(`看到 ${target.name}，靠近準備攻擊。`);
+      }
+    }
+    return;
+  }
+
+  // No monsters: wander near plaza.
+  if (!p.goal) {
+    const px = 15 * WORLD.tileSize + 32;
+    const py = 10 * WORLD.tileSize + 16;
+    const j = () => (Math.random() - 0.5) * 220;
+    p.goal = {
+      x: clamp(px + j(), 0, (WORLD.width - 1) * WORLD.tileSize),
+      y: clamp(py + j(), 0, (WORLD.height - 1) * WORLD.tileSize),
+    };
+    if (p._autoBotState !== 'wander') {
+      p._autoBotState = 'wander';
+      say('巡邏廣場中。');
+    }
+  }
 }
 
 const app = express();
@@ -1517,6 +1590,7 @@ app.post("/api/bot/mode", (req, res) => {
   if (!['manual', 'agent'].includes(mode)) return res.status(400).json({ ok: false, error: "invalid mode" });
   auth.player.mode = mode;
   if (mode === "manual") auth.player.goal = null;
+  auth.player.externalBotLastActionAt = nowMs();
   res.json({ ok: true, player: toPublicPlayer(auth.player) });
 });
 
@@ -1590,6 +1664,7 @@ app.post("/api/bot/goal", (req, res) => {
     x: clamp(x, 0, (WORLD.width - 1) * WORLD.tileSize),
     y: clamp(y, 0, (WORLD.height - 1) * WORLD.tileSize),
   };
+  auth.player.externalBotLastActionAt = nowMs();
   res.json({ ok: true });
 });
 
@@ -1597,6 +1672,7 @@ app.post("/api/bot/intent", (req, res) => {
   const auth = authBot(req);
   if (!auth) return res.status(401).json({ ok: false, error: "unauthorized" });
   auth.player.intent = safeText(req.body?.text || "", 200);
+  auth.player.externalBotLastActionAt = nowMs();
   res.json({ ok: true });
 });
 
@@ -1607,13 +1683,16 @@ app.post("/api/bot/chat", (req, res) => {
   const t = nowMs();
   if (t - p.lastChatAt < 1200) return res.status(429).json({ ok: false, error: "rate limited" });
   p.lastChatAt = t;
+  p.externalBotLastActionAt = t;
   pushChat({ kind: "chat", text: req.body?.text, from: { id: p.id, name: p.name } });
   p.xp += 1;
   markDirty(p);
   const newLevel = levelForXp(p.xp);
   if (newLevel > p.level) {
+    const prevLevel = p.level;
     p.level = newLevel;
-    p.statPoints += 1;
+    p.statPoints += Math.max(0, newLevel - prevLevel);
+    ensurePlayerVitals(p, { gainHpFromMaxHpIncrease: true });
     pushChat({ kind: "system", text: `${p.name} reached Level ${p.level}!`, from: { id: "system", name: "Town" } });
     markDirty(p);
   }
@@ -1651,6 +1730,7 @@ app.post("/api/bot/cast", (req, res) => {
   const auth = authBot(req);
   if (!auth) return res.status(401).json({ ok: false, error: "unauthorized" });
   const p = auth.player;
+  p.externalBotLastActionAt = nowMs();
   const spell = req.body?.spell;
   const x = req.body?.x;
   const y = req.body?.y;
@@ -2059,6 +2139,9 @@ function tick() {
   tickMonsters();
   const speed = 6;
   for (const p of players.values()) {
+    // If no external bot is controlling, run a tiny built-in autopilot.
+    maybeAutopilot(p);
+
     if (p.mode === "agent" && p.goal) {
       const gx = p.goal.x;
       const gy = p.goal.y;

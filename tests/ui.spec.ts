@@ -151,6 +151,61 @@ test('Combat: hotkey 1 damages a nearby monster', async ({ page }) => {
   expect(changed).toBeTruthy();
 });
 
+test('Input: arrow keys do not scroll the page', async ({ page }) => {
+  await resetWorld(page);
+  await page.goto('/');
+  await waitForFonts(page);
+  await closeOnboarding(page);
+
+  const y0 = await page.evaluate(() => window.scrollY);
+  expect(y0).toBe(0);
+  await page.keyboard.press('ArrowDown');
+  await page.waitForTimeout(120);
+  const y1 = await page.evaluate(() => window.scrollY);
+  expect(y1).toBe(0);
+});
+
+test('Layout: right panel scroll does not move map', async ({ page }) => {
+  await resetWorld(page);
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.goto('/');
+  await waitForFonts(page);
+  await closeOnboarding(page);
+
+  const canvas = page.locator('#game');
+  const body = page.locator('.ui-window-body');
+  await expect(body).toBeVisible();
+
+  const y0 = await page.evaluate(() => window.scrollY);
+  expect(y0).toBe(0);
+
+  const box0 = await canvas.boundingBox();
+  expect(box0).toBeTruthy();
+
+  const st0 = await page.evaluate(() => {
+    const el = document.querySelector('.ui-window-body');
+    return el ? (el as HTMLElement).scrollTop : -1;
+  });
+  expect(st0).toBe(0);
+
+  await body.hover();
+  await page.mouse.wheel(0, 900);
+  await page.waitForTimeout(150);
+
+  const st1 = await page.evaluate(() => {
+    const el = document.querySelector('.ui-window-body');
+    return el ? (el as HTMLElement).scrollTop : -1;
+  });
+  expect(st1).toBeGreaterThan(0);
+
+  const y1 = await page.evaluate(() => window.scrollY);
+  expect(y1).toBe(0);
+
+  const box1 = await canvas.boundingBox();
+  expect(box1).toBeTruthy();
+  expect(Math.round((box1 as any).y)).toBe(Math.round((box0 as any).y));
+});
+
 test('Sorting Hat produces a result', async ({ page }) => {
   await resetWorld(page);
   await page.goto('/');
@@ -294,6 +349,9 @@ test('Bot tab shows [BOT] thoughts', async ({ page }) => {
   await page.locator('.ui-tab[data-tab="chat"]').click();
   await page.locator('#chatInput').fill('[BOT] planning: hunt slimes, save for gear');
   await page.locator('#chatSend').click();
+
+  // Switch UI language to English so Bot Thoughts view shows English entries.
+  await page.locator('#langEn').click();
 
   await page.locator('.ui-tab[data-tab="bot"]').click();
   await expect(page.locator('#botLog')).toContainText('planning: hunt slimes');
@@ -609,6 +667,41 @@ test('Stats: allocating STR increases ATK and persists (CT_TEST)', async ({ page
   );
 
   await expect(page.locator('#statStrVal')).toContainText(String(strBefore + 1));
+});
+
+test('H-Mode: linked bot autopilot moves and fights', async ({ page }) => {
+  await resetWorld(page);
+  await page.goto('/');
+  await waitForFonts(page);
+  await closeOnboarding(page);
+
+  const playerId = await page.evaluate(() => {
+    try {
+      return JSON.parse(localStorage.getItem('clawtown.player') || 'null')?.playerId || null;
+    } catch {
+      return null;
+    }
+  });
+  expect(playerId).toBeTruthy();
+
+  await page.request.post('/api/debug/teleport', { data: { playerId, x: 520, y: 300 } });
+  await page.request.post('/api/debug/spawn-monster', { data: { id: 'm_auto_slime', kind: 'slime', name: 'Auto Poring', x: 520, y: 300, maxHp: 1, hp: 1 } });
+
+  // Link a bot (no external bot loop needed).
+  const join = await page.request.post('/api/join-codes', { data: { playerId } });
+  const joinData = await join.json();
+  expect(joinData.ok).toBeTruthy();
+  const link = await page.request.post('/api/bot/link', { data: { joinCode: joinData.joinCode } });
+  const linkData = await link.json();
+  expect(linkData.ok).toBeTruthy();
+
+  // Switch to H-Mode; autopilot should take over and kill the spawned slime.
+  await page.locator('#modeAgent').click();
+  await expect(page.locator('#kills')).toContainText('1', { timeout: 10_000 });
+
+  // Bot thoughts should show at least one line.
+  await page.locator('.ui-tab[data-tab="bot"]').click();
+  await expect(page.locator('#botLog')).toContainText('[BOT]');
 });
 
 test('Two players can chat (local multiplayer)', async ({ browser }) => {

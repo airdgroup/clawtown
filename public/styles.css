@@ -67,6 +67,12 @@ header {
   padding: 18px 18px 10px;
 }
 
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
 .brand {
   display: flex;
   align-items: center;
@@ -114,6 +120,7 @@ main {
   display: grid;
   grid-template-columns: 1fr 440px;
   gap: 14px;
+  align-items: start;
   padding: 8px 18px 18px;
 }
 
@@ -347,10 +354,19 @@ main {
   border-bottom: 1px solid rgba(19, 27, 42, 0.12);
 }
 
+.ui-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
 .ui-tabs {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+  flex: 1 1 auto;
 }
 
 .ui-tab {
@@ -407,7 +423,32 @@ main {
 .row-inline {
   display: flex;
   gap: 10px;
+  flex-direction: row;
+  flex-wrap: wrap;
   align-items: center;
+}
+
+.seg-mini .seg-btn {
+  padding: 8px 10px;
+  font-size: 11px;
+}
+
+.kpi-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.pill-kpi {
+  padding: 6px 10px;
+  font-size: 11px;
+}
+
+@media (min-width: 1101px) {
+  /* Desktop: keep default page scroll so the right panel can grow naturally. */
+  body {
+    overflow: auto;
+  }
 }
 
 label {
@@ -811,6 +852,54 @@ textarea {
 @media (max-width: 1100px) {
   main {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (min-width: 1101px) {
+  /* Desktop: right panel scroll only; left stage stays fixed. */
+  body {
+    overflow: hidden;
+  }
+
+  #app {
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  main {
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+    grid-template-rows: 1fr;
+  }
+
+  .stage,
+  .panel {
+    min-height: 0;
+  }
+
+  .stage {
+    height: 100%;
+    overflow: hidden;
+  }
+
+  .panel {
+    height: 100%;
+    overflow: hidden;
+  }
+
+  .ui-window {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .ui-window-body {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    overscroll-behavior: contain;
   }
 }
 

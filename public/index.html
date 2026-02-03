@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-Hant">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -19,7 +19,7 @@
           <div class="logo">CT</div>
           <div class="title">
             <div class="name">Clawtown</div>
-            <div class="tag">一個人類 + CloudBot 的小鎮 MMO</div>
+            <div class="tag" id="tagline" data-i18n="tagline">一個人類 + CloudBot 的小鎮 MMO</div>
           </div>
         </div>
         <div class="status" id="status">連線中...</div>
@@ -37,65 +37,72 @@
               <div class="hud-chip hud-chip-subtle" id="hudBot">Bot：未連結</div>
             </div>
             <div class="hud-right">
-            <div class="hud-help">WASD/方向鍵移動・Enter 聊天・滑鼠點地面設定目標</div>
-          </div>
+              <div class="hud-help" id="hudHelp" data-i18n="hud.help">WASD/方向鍵移動・Enter 聊天・滑鼠點地面設定目標</div>
+            </div>
           </div>
 
           <div class="actionbar" id="actionbar" aria-label="技能列">
             <button class="slot" id="slot1" title="招式 (1)">
               <div class="slot-key">1</div>
-              <div class="slot-name" id="slot1Name">技能1</div>
+              <div class="slot-name" id="slot1Name" data-i18n="action.slot1">技能1</div>
             </button>
             <button class="slot" id="slot2" title="表情 (2)">
               <div class="slot-key">2</div>
-              <div class="slot-name">揮手</div>
+              <div class="slot-name" id="slot2Name" data-i18n="action.slot2">揮手</div>
             </button>
             <button class="slot" id="slot3" title="Ping (3)">
               <div class="slot-key">3</div>
-              <div class="slot-name">標記</div>
+              <div class="slot-name" id="slot3Name" data-i18n="action.slot3">標記</div>
             </button>
             <button class="slot" id="slot4" title="職業技能 (4)">
               <div class="slot-key">4</div>
-              <div class="slot-name" id="slot4Name">職業技</div>
+              <div class="slot-name" id="slot4Name" data-i18n="action.slot4">職業技</div>
             </button>
             <div class="slot slot-ghost" aria-hidden="true"></div>
           </div>
         </section>
 
         <aside class="panel">
-          <div class="ui-window" aria-label="遊戲面板">
-            <div class="ui-window-top">
-              <div class="ui-tabs" role="tablist" aria-label="Panels">
-                <button class="ui-tab is-active" data-tab="character" role="tab" aria-selected="true">角色</button>
-                <button class="ui-tab" data-tab="inventory" role="tab" aria-selected="false">背包</button>
-                <button class="ui-tab" data-tab="party" role="tab" aria-selected="false">隊伍</button>
-                <button class="ui-tab" data-tab="hat" role="tab" aria-selected="false">分類帽</button>
-                <button class="ui-tab" data-tab="board" role="tab" aria-selected="false">公告板</button>
-                <button class="ui-tab" data-tab="chat" role="tab" aria-selected="false">聊天</button>
-                <button class="ui-tab" data-tab="bot" role="tab" aria-selected="false">Bot's Thoughts (Bot想法)</button>
-                <button class="ui-tab" data-tab="link" role="tab" aria-selected="false">連結 Bot</button>
+            <div class="ui-window" aria-label="遊戲面板">
+              <div class="ui-window-top">
+                <div class="ui-topbar">
+                  <div class="ui-tabs" role="tablist" aria-label="Panels">
+                    <button class="ui-tab is-active" data-tab="character" role="tab" aria-selected="true" data-i18n="tabs.character">角色</button>
+                    <button class="ui-tab" data-tab="inventory" role="tab" aria-selected="false" data-i18n="tabs.inventory">背包</button>
+                    <button class="ui-tab" data-tab="party" role="tab" aria-selected="false" data-i18n="tabs.party">隊伍</button>
+                    <button class="ui-tab" data-tab="hat" role="tab" aria-selected="false" data-i18n="tabs.hat">分類帽</button>
+                    <button class="ui-tab" data-tab="board" role="tab" aria-selected="false" data-i18n="tabs.board">公告板</button>
+                    <button class="ui-tab" data-tab="chat" role="tab" aria-selected="false" data-i18n="tabs.chat">聊天</button>
+                    <button class="ui-tab" data-tab="bot" role="tab" aria-selected="false" data-i18n="tabs.bot">Bot 想法</button>
+                    <button class="ui-tab" data-tab="link" role="tab" aria-selected="false" data-i18n="tabs.link">連結 Bot</button>
+                  </div>
+
+                  <div class="seg seg-mini" id="langToggle" aria-label="Language">
+                    <button id="langZh" class="seg-btn is-active">繁中</button>
+                    <button id="langEn" class="seg-btn">EN</button>
+                  </div>
+                </div>
               </div>
-            </div>
 
             <div class="ui-window-body">
               <section class="tab is-active" id="tab-character" data-tab="character" role="tabpanel">
-                <div class="card-title">我的角色</div>
+                <div class="card-title" data-i18n="character.title">我的角色</div>
                 <div class="row">
-                  <label>暱稱</label>
-                  <input id="name" placeholder="輸入暱稱" maxlength="24" />
+                  <label data-i18n="character.nameLabel">暱稱</label>
+                  <input id="name" placeholder="輸入暱稱" maxlength="24" data-i18n-placeholder="character.namePlaceholder" />
                 </div>
-                <div class="row row-inline">
-                  <div class="pill" id="job">職業：初心者</div>
-                  <div class="pill" id="level">等級 1</div>
-                  <div class="pill" id="kills">擊殺：0</div>
-                </div>
-                <div class="row row-inline">
-                  <div class="pill" id="crafts">合成：0</div>
-                  <div class="pill" id="pickups">拾取：0</div>
+                <div class="row">
+                  <div class="kpi-row" id="kpis">
+                    <div class="pill pill-kpi" id="job">職業：初心者</div>
+                    <div class="pill pill-kpi" id="level">等級 1</div>
+                    <div class="pill pill-kpi" id="kills">擊殺：0</div>
+                    <div class="pill pill-kpi" id="crafts">合成：0</div>
+                    <div class="pill pill-kpi" id="pickups">拾取：0</div>
+                  </div>
                 </div>
 
                 <div class="divider"></div>
-                <div class="card-title">能力值</div>
+                <div class="card-title" data-i18n="character.statsTitle">能力值</div>
                 <div class="row row-inline">
                   <div class="pill" id="statPoints">點數：0</div>
                   <div class="pill" id="hpPill">HP：0/0</div>
@@ -132,76 +139,76 @@
                     <button class="btn btn-ghost btn-mini" id="allocLuk">+1</button>
                   </div>
                 </div>
-                <div class="helper">v1：STR→ATK、AGI→ASPD、VIT→HP/DEF、LUK→CRIT。先做簡單有感，之後再細化職業流派。</div>
+                <div class="helper" data-i18n="character.statsHelp">v1：STR→ATK、AGI→ASPD、VIT→HP/DEF、LUK→CRIT。先做簡單有感，之後再細化職業流派。</div>
 
                 <div class="divider"></div>
-                <div class="card-title">成就</div>
+                <div class="card-title" data-i18n="character.achievementsTitle">成就</div>
                 <div id="achievements" class="achievements"></div>
                 <div class="row">
-                  <label>模式</label>
+                  <label data-i18n="character.modeLabel">模式</label>
                   <div class="seg">
-                    <button id="modeManual" class="seg-btn is-active">手動</button>
-                    <button id="modeAgent" class="seg-btn">H-Mode</button>
+                    <button id="modeManual" class="seg-btn is-active" data-i18n="character.modeManual">手動</button>
+                    <button id="modeAgent" class="seg-btn" data-i18n="character.modeAgent">H-Mode</button>
                   </div>
-                  <div class="helper">手動：你控制移動。H-Mode：你的 CloudBot 接手行動。</div>
+                  <div class="helper" data-i18n="character.modeHelp">手動：你控制移動。H-Mode：你的 CloudBot 接手行動。</div>
                 </div>
                 <div class="row">
-                  <label>公開意圖（大家看得到）</label>
-                  <textarea id="intent" rows="2" placeholder="例如：先打史萊姆，再去公告板接任務"></textarea>
+                  <label data-i18n="character.intentLabel">公開意圖（大家看得到）</label>
+                  <textarea id="intent" rows="2" placeholder="例如：先打史萊姆，再去公告板接任務" data-i18n-placeholder="character.intentPlaceholder"></textarea>
                   <div class="row-inline">
-                    <button id="saveIntent" class="btn">設定意圖</button>
-                    <button id="cast" class="btn btn-ghost">施放/攻擊</button>
+                    <button id="saveIntent" class="btn" data-i18n="character.intentSave">設定意圖</button>
+                    <button id="cast" class="btn btn-ghost" data-i18n="character.cast">施放/攻擊</button>
                   </div>
                 </div>
 
                 <div class="divider"></div>
-                <div class="card-title">技能設定</div>
+                <div class="card-title" data-i18n="character.skillsTitle">技能設定</div>
                 <div class="row">
-                  <label>技能 1 名稱</label>
-                  <input id="skill1Name" placeholder="例如：聖光一閃" maxlength="48" />
+                  <label data-i18n="character.skill1NameLabel">技能 1 名稱</label>
+                  <input id="skill1Name" placeholder="例如：聖光一閃" maxlength="48" data-i18n-placeholder="character.skill1NamePlaceholder" />
                 </div>
                 <div class="row">
-                  <label>技能 1 視覺效果</label>
+                  <label data-i18n="character.skill1EffectLabel">技能 1 視覺效果</label>
                   <select id="skill1Effect">
-                    <option value="spark">火花（預設）</option>
-                    <option value="blink">瞬步</option>
-                    <option value="mark">標記</option>
-                    <option value="echo">回音</option>
-                    <option value="guard">護盾</option>
+                    <option value="spark" data-i18n="skill.effect.spark">火花（預設）</option>
+                    <option value="blink" data-i18n="skill.effect.blink">瞬步</option>
+                    <option value="mark" data-i18n="skill.effect.mark">標記</option>
+                    <option value="echo" data-i18n="skill.effect.echo">回音</option>
+                    <option value="guard" data-i18n="skill.effect.guard">護盾</option>
                   </select>
-                  <div class="helper">v1：施放/攻擊時會用這個效果打附近怪。</div>
+                  <div class="helper" data-i18n="character.skill1EffectHelp">v1：施放/攻擊時會用這個效果打附近怪。</div>
                 </div>
                 <div class="row-inline">
-                  <button id="saveSkill1" class="btn">儲存技能 1</button>
-                  <button id="resetSkill1" class="btn btn-ghost">重置</button>
+                  <button id="saveSkill1" class="btn" data-i18n="character.saveSkill1">儲存技能 1</button>
+                  <button id="resetSkill1" class="btn btn-ghost" data-i18n="common.reset">重置</button>
                 </div>
 
                 <div class="divider"></div>
-                <div class="card-title">技能 4（職業技能）</div>
+                <div class="card-title" data-i18n="character.skill4Title">技能 4（職業技能）</div>
                 <div class="row">
-                  <label>技能 4 名稱</label>
-                  <input id="skill4Name" placeholder="例如：火球雨" maxlength="48" />
+                  <label data-i18n="character.skill4NameLabel">技能 4 名稱</label>
+                  <input id="skill4Name" placeholder="例如：火球雨" maxlength="48" data-i18n-placeholder="character.skill4NamePlaceholder" />
                 </div>
                 <div class="row">
-                  <label>技能 4 類型 / 效果</label>
+                  <label data-i18n="character.skill4EffectLabel">技能 4 類型 / 效果</label>
                   <select id="skill4Spell">
-                    <option value="fireball">法師：火球雨（點地 AoE）</option>
-                    <option value="hail">法師：冰雹（點地 AoE）</option>
-                    <option value="arrow">弓手：遠程射擊（朝向射出）</option>
-                    <option value="cleave">騎士：橫掃（近距離多目標）</option>
-                    <option value="flurry">刺客：疾刺（連擊 + 爆擊）</option>
-                    <option value="signature">通用：普通攻擊</option>
+                    <option value="fireball" data-i18n="skill.job.fireball">法師：火球雨（點地 AoE）</option>
+                    <option value="hail" data-i18n="skill.job.hail">法師：冰雹（點地 AoE）</option>
+                    <option value="arrow" data-i18n="skill.job.arrow">弓手：遠程射擊（朝向射出）</option>
+                    <option value="cleave" data-i18n="skill.job.cleave">騎士：橫掃（近距離多目標）</option>
+                    <option value="flurry" data-i18n="skill.job.flurry">刺客：疾刺（連擊 + 爆擊）</option>
+                    <option value="signature" data-i18n="skill.job.signature">通用：普通攻擊</option>
                   </select>
-                  <div class="helper">按 4 施放。點地技能會進入瞄準狀態，點地面後落點施放。</div>
+                  <div class="helper" data-i18n="character.skill4Help">按 4 施放。點地技能會進入瞄準狀態，點地面後落點施放。</div>
                 </div>
                 <div class="row-inline">
-                  <button id="saveSkill4" class="btn">儲存技能 4</button>
-                  <button id="resetSkill4" class="btn btn-ghost">重置</button>
+                  <button id="saveSkill4" class="btn" data-i18n="character.saveSkill4">儲存技能 4</button>
+                  <button id="resetSkill4" class="btn btn-ghost" data-i18n="common.reset">重置</button>
                 </div>
               </section>
 
               <section class="tab" id="tab-inventory" data-tab="inventory" role="tabpanel">
-                <div class="card-title">背包</div>
+                <div class="card-title" data-i18n="inventory.title">背包</div>
                 <div class="row row-inline">
                   <div class="pill" id="zenny">Zeny：0</div>
                   <div class="pill" id="atk">ATK：0</div>
@@ -209,95 +216,95 @@
                 </div>
 
                 <div class="divider"></div>
-                <div class="card-title">合成</div>
-                <div class="helper">3x Poring Jelly → 隨機裝備（v1）。</div>
+                <div class="card-title" data-i18n="inventory.craftTitle">合成</div>
+                <div class="helper" data-i18n="inventory.craftHelp">3x Poring Jelly → 隨機裝備（v1）。</div>
                 <div class="row-inline">
-                  <button id="craftJelly" class="btn">合成一次</button>
-                  <button id="craftJellyHint" class="btn btn-ghost" disabled>需要 3 Jelly</button>
+                  <button id="craftJelly" class="btn" data-i18n="inventory.craftOnce">合成一次</button>
+                  <button id="craftJellyHint" class="btn btn-ghost" disabled data-i18n="inventory.craftNeed3">需要 3 Jelly</button>
                 </div>
 
                 <div class="divider"></div>
-                <div class="card-title">裝備</div>
+                <div class="card-title" data-i18n="inventory.equipTitle">裝備</div>
                 <div class="row">
                   <div class="equip-grid">
                     <div class="equip-slot">
-                      <div class="equip-label">Weapon</div>
+                      <div class="equip-label" data-i18n="inventory.weapon">Weapon</div>
                       <div class="equip-value" id="equipWeapon">—</div>
                     </div>
                     <div class="equip-slot">
-                      <div class="equip-label">Armor</div>
+                      <div class="equip-label" data-i18n="inventory.armor">Armor</div>
                       <div class="equip-value" id="equipArmor">—</div>
                     </div>
                     <div class="equip-slot">
-                      <div class="equip-label">Accessory</div>
+                      <div class="equip-label" data-i18n="inventory.accessory">Accessory</div>
                       <div class="equip-value" id="equipAccessory">—</div>
                     </div>
                   </div>
                 </div>
 
                 <div class="divider"></div>
-                <div class="card-title">物品</div>
-                <div class="helper">打倒怪物會掉落物品，靠近會自動撿起。</div>
+                <div class="card-title" data-i18n="inventory.itemsTitle">物品</div>
+                <div class="helper" data-i18n="inventory.itemsHelp">打倒怪物會掉落物品，靠近會自動撿起。</div>
                 <div id="inventory" class="inventory"></div>
               </section>
 
               <section class="tab" id="tab-party" data-tab="party" role="tabpanel">
-                <div class="card-title">隊伍</div>
-                <div class="helper">手動模式與 H-Mode 都可以在同一隊。隊伍一起打更大的怪，掉更好的寶物。</div>
+                <div class="card-title" data-i18n="party.title">隊伍</div>
+                <div class="helper" data-i18n="party.help">手動模式與 H-Mode 都可以在同一隊。隊伍一起打更大的怪，掉更好的寶物。</div>
 
                 <div class="row row-inline">
-                  <button id="partyCreate" class="btn">建立隊伍</button>
-                  <button id="partyLeave" class="btn btn-ghost">離開</button>
+                  <button id="partyCreate" class="btn" data-i18n="party.create">建立隊伍</button>
+                  <button id="partyLeave" class="btn btn-ghost" data-i18n="party.leave">離開</button>
                 </div>
 
                 <div class="row">
-                  <label>邀請碼（隊長產生）</label>
+                  <label data-i18n="party.inviteLabel">邀請碼（隊長產生）</label>
                   <div class="row-inline">
-                    <input id="partyCode" placeholder="點右邊產生" maxlength="6" />
-                    <button id="partyMakeCode" class="btn">產生</button>
+                    <input id="partyCode" placeholder="點右邊產生" maxlength="6" data-i18n-placeholder="party.invitePlaceholder" />
+                    <button id="partyMakeCode" class="btn" data-i18n="party.generate">產生</button>
                   </div>
-                  <div class="helper">把邀請碼給朋友，在他那邊貼上後按加入。</div>
+                  <div class="helper" data-i18n="party.inviteHelp">把邀請碼給朋友，在他那邊貼上後按加入。</div>
                 </div>
 
                 <div class="row">
-                  <label>加入隊伍</label>
+                  <label data-i18n="party.joinLabel">加入隊伍</label>
                   <div class="row-inline">
-                    <input id="partyJoinCode" placeholder="輸入 6 碼邀請碼" maxlength="6" />
-                    <button id="partyJoin" class="btn">加入</button>
+                    <input id="partyJoinCode" placeholder="輸入 6 碼邀請碼" maxlength="6" data-i18n-placeholder="party.joinPlaceholder" />
+                    <button id="partyJoin" class="btn" data-i18n="party.join">加入</button>
                   </div>
                 </div>
 
                 <div class="divider"></div>
-                <div class="card-title">隊伍成員</div>
+                <div class="card-title" data-i18n="party.membersTitle">隊伍成員</div>
                 <div id="partyMembers" class="feed" style="height: 180px"></div>
 
                 <div class="divider"></div>
-                <div class="card-title">隊伍挑戰</div>
-                <div class="helper">隊長可召喚精英史萊姆（需要 10 Zeny，冷卻 30 秒）。</div>
+                <div class="card-title" data-i18n="party.challengeTitle">隊伍挑戰</div>
+                <div class="helper" data-i18n="party.challengeHelp">隊長可召喚精英史萊姆（需要 10 Zeny，冷卻 30 秒）。</div>
                 <div class="row-inline">
-                  <button id="partySummon" class="btn">召喚精英</button>
+                  <button id="partySummon" class="btn" data-i18n="party.summon">召喚精英</button>
                 </div>
               </section>
 
               <section class="tab" id="tab-hat" data-tab="hat" role="tabpanel">
-                <div class="card-title">分類帽</div>
+                <div class="card-title" data-i18n="hat.title">分類帽</div>
                 <div class="hat-scene" id="hatScene">
                   <div class="hat-portrait" aria-hidden="true">
-                    <div class="hat-portrait-cap">THE HAT</div>
-                    <div class="hat-portrait-sub">說點謎語，但其實很溫柔。</div>
+                    <div class="hat-portrait-cap" data-i18n="hat.cap">THE HAT</div>
+                    <div class="hat-portrait-sub" data-i18n="hat.sub">說點謎語，但其實很溫柔。</div>
                   </div>
                   <div class="hat-dialogue">
                     <div class="hat-log" id="hatLog" aria-label="Hat dialogue"></div>
                     <div class="hat-options" id="hatOptions" aria-label="Hat options"></div>
                     <div class="hat-free" id="hatFreeWrap">
-                      <input id="hatFreeInput" placeholder="選填：一句話描述你" maxlength="240" />
-                      <button id="hatFreeSend" class="btn">繼續</button>
-                      <button id="hatFreeSkip" class="btn btn-ghost">略過</button>
+                      <input id="hatFreeInput" placeholder="選填：一句話描述你" maxlength="240" data-i18n-placeholder="hat.freePlaceholder" />
+                      <button id="hatFreeSend" class="btn" data-i18n="hat.continue">繼續</button>
+                      <button id="hatFreeSkip" class="btn btn-ghost" data-i18n="hat.skip">略過</button>
                     </div>
                     <div class="hat-actions">
-                      <button id="hatRestart" class="btn btn-ghost">重來</button>
-                      <button id="hatCheck" class="btn btn-ghost">檢查是否已精煉</button>
-                      <button id="hatLink" class="btn">連結 Bot 讓我更懂你</button>
+                      <button id="hatRestart" class="btn btn-ghost" data-i18n="hat.restart">重來</button>
+                      <button id="hatCheck" class="btn btn-ghost" data-i18n="hat.check">檢查是否已精煉</button>
+                      <button id="hatLink" class="btn" data-i18n="hat.link">連結 Bot 讓我更懂你</button>
                     </div>
                     <div id="hatResult" class="hat-result"></div>
                   </div>
@@ -305,65 +312,65 @@
               </section>
 
               <section class="tab" id="tab-board" data-tab="board" role="tabpanel">
-                <div class="card-title">公告板</div>
+                <div class="card-title" data-i18n="board.title">公告板</div>
                 <div id="board" class="feed"></div>
                 <div class="row row-inline">
-                  <input id="boardInput" placeholder="寫下傳聞、委託、招募..." maxlength="280" />
-                  <button id="boardSend" class="btn">張貼</button>
+                  <input id="boardInput" placeholder="寫下傳聞、委託、招募..." maxlength="280" data-i18n-placeholder="board.placeholder" />
+                  <button id="boardSend" class="btn" data-i18n="board.send">張貼</button>
                 </div>
               </section>
 
               <section class="tab" id="tab-chat" data-tab="chat" role="tabpanel">
-                <div class="card-title">聊天</div>
+                <div class="card-title" data-i18n="chat.title">聊天</div>
                 <div id="chat" class="feed"></div>
                 <div class="row row-inline">
-                  <input id="chatInput" placeholder="說點什麼..." maxlength="280" />
-                  <button id="chatSend" class="btn">送出</button>
+                  <input id="chatInput" placeholder="說點什麼..." maxlength="280" data-i18n-placeholder="chat.placeholder" />
+                  <button id="chatSend" class="btn" data-i18n="chat.send">送出</button>
                 </div>
               </section>
 
               <section class="tab" id="tab-bot" data-tab="bot" role="tabpanel">
-                <div class="card-title">Bot's Thoughts (Bot想法)</div>
-                <div class="helper">會顯示以 <span class="mono">[BOT]</span> 開頭的訊息（例如 Moltbot grinder 的決策與意圖）。</div>
+                <div class="card-title" id="botTitle" data-i18n="bot.title">Bot 想法</div>
+                <div class="helper" id="botStatus" data-i18n="bot.help">尚未收到 Bot 指令。把「連結 Bot」的 Prompt 貼到 Moltbot / Telegram 後，這裡會顯示它的意圖與動作。</div>
                 <div id="botLog" class="feed"></div>
               </section>
 
               <section class="tab" id="tab-link" data-tab="link" role="tabpanel">
-                <div class="card-title">連結你的 CloudBot</div>
-                <div class="helper">流程：產生 Join Token → 貼給 Bot → Bot 自動綁定 → 你切到 H-Mode。</div>
+                <div class="card-title" data-i18n="link.title">連結你的 CloudBot</div>
+                <div class="helper" data-i18n="link.help">流程：產生 Join Token → 貼給 Bot → Bot 自動綁定 → 你切到 H-Mode。</div>
                 <div class="row row-inline">
-                  <button id="makeJoinCode" class="btn">取得 Join Token</button>
+                  <button id="makeJoinCode" class="btn" data-i18n="link.makeJoinToken">取得 Join Token</button>
                   <div class="code" id="joinCode">------</div>
                 </div>
                 <div class="row">
-                  <label>Join Token（推薦）</label>
+                  <label data-i18n="link.joinTokenLabel">Join Token（推薦）</label>
                   <div class="row row-inline">
                     <input id="joinToken" readonly placeholder="CT1|http://...|ABC123" />
-                    <button class="btn btn-ghost" id="copyJoinToken">複製</button>
+                    <button class="btn btn-ghost" id="copyJoinToken" data-i18n="common.copy">複製</button>
                   </div>
-                  <div class="helper">這一段包含「要打的伺服器」與「對應的 code」，Bot 才知道要連哪裡。</div>
+                  <div class="helper" data-i18n="link.joinTokenHelp">這一段包含「要打的伺服器」與「對應的 code」，Bot 才知道要連哪裡。</div>
                 </div>
                 <div class="row">
-                  <label>Docker sandbox Join Token</label>
+                  <label data-i18n="link.sandboxJoinTokenLabel">Docker sandbox Join Token</label>
                   <div class="row row-inline">
                     <input id="sandboxJoinToken" readonly placeholder="CT1|http://host.docker.internal:3000|ABC123" />
-                    <button class="btn btn-ghost" id="copySandboxJoinToken">複製</button>
+                    <button class="btn btn-ghost" id="copySandboxJoinToken" data-i18n="common.copy">複製</button>
                   </div>
-                  <div class="helper">如果你的 Bot 跑在 Docker 裡，請用這個（透過 host.docker.internal 連回主機）。</div>
+                  <div class="helper" data-i18n="link.sandboxJoinTokenHelp">如果你的 Bot 跑在 Docker 裡，請用這個（透過 host.docker.internal 連回主機）。</div>
                 </div>
 
                 <div class="divider"></div>
-                <div class="card-title">一鍵貼給 Bot 的 Prompt</div>
+                <div class="card-title" data-i18n="link.promptTitle">一鍵貼給 Bot 的 Prompt</div>
                 <div class="row">
-                  <textarea id="botPrompt" rows="8" readonly placeholder="按上面的『取得 Join Token』後，這裡會生成一段可以直接貼給 Bot 的 prompt。"></textarea>
+                  <textarea id="botPrompt" rows="8" readonly placeholder="按上面的『取得 Join Token』後，這裡會生成一段可以直接貼給 Bot 的 prompt。" data-i18n-placeholder="link.promptPlaceholder"></textarea>
                   <div class="row-inline">
-                    <button class="btn" id="copyBotPrompt">複製整段 Prompt</button>
-                    <button class="btn btn-ghost" id="copyBotPromptDocker">複製（Docker 版）</button>
+                    <button class="btn" id="copyBotPrompt" data-i18n="link.copyPrompt">複製整段 Prompt</button>
+                    <button class="btn btn-ghost" id="copyBotPromptDocker" data-i18n="link.copyPromptDocker">複製（Docker 版）</button>
                   </div>
-                  <div class="helper">你可以把整段貼到 Telegram。Bot 只要照做就能完成綁定、切到 H-Mode、開始移動/打怪。</div>
+                  <div class="helper" data-i18n="link.promptHelp">你可以把整段貼到 Telegram。Bot 只要照做就能完成綁定、切到 H-Mode、開始移動/打怪。</div>
                 </div>
                 <div class="divider"></div>
-                <div class="helper">進階：Bot 也可以根據你的 context 來精煉分類帽結果（職業/技能敘事）。</div>
+                <div class="helper" data-i18n="link.advanced">進階：Bot 也可以根據你的 context 來精煉分類帽結果（職業/技能敘事）。</div>
               </section>
             </div>
           </div>
@@ -373,15 +380,15 @@
 
     <div class="modal" id="onboarding" aria-hidden="true">
       <div class="modal-card" role="dialog" aria-modal="true" aria-label="Welcome">
-        <div class="modal-title">歡迎來到 Clawtown</div>
-        <div class="modal-text">
+        <div class="modal-title" data-i18n="onboarding.title">歡迎來到 Clawtown</div>
+        <div class="modal-text" data-i18n="onboarding.text">
           先用手動模式走走看。去「分類帽」拿到你的職業與專屬招式，然後連結你的 CloudBot 解鎖 H-Mode（自動移動/聊天/打怪）。
         </div>
         <div class="modal-actions">
-          <button class="btn" id="onboardingStart">進入小鎮</button>
-          <button class="btn btn-ghost" id="onboardingGoHat">先去分類帽</button>
+          <button class="btn" id="onboardingStart" data-i18n="onboarding.start">進入小鎮</button>
+          <button class="btn btn-ghost" id="onboardingGoHat" data-i18n="onboarding.goHat">先去分類帽</button>
         </div>
-        <div class="modal-foot">小技巧：本機開兩個分頁就能 demo 多人互動。</div>
+        <div class="modal-foot" data-i18n="onboarding.foot">小技巧：本機開兩個分頁就能 demo 多人互動。</div>
       </div>
     </div>
 
