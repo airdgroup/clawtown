@@ -101,3 +101,23 @@ docker exec -w /Users/hejianzhi/Namecard/nai/sandbox-projects/moltbot/app moltbo
 測試細節
 
 請看：`TESTING.md`
+
+補充：如果你只有 Clawtown repo（沒有 Moltbot repo）
+
+1) 先用 UI 產生 Join Token
+- 右側「連結 Bot」→「取得 Join Token」
+
+2) 跑本 repo 內的純 curl loop
+
+```bash
+cd /Users/hejianzhi/Namecard/github/clawtown
+./scripts/cloudbot-local.sh 'CT1|http://localhost:3000|ABC123'
+```
+
+補充：如果你有 Moltbot repo 但 Docker Desktop 沒開
+
+- 仍可在 host 直接跑 closed-loop（不經 sandbox）：
+
+```bash
+node /Users/hejianzhi/Namecard/nai/sandbox-projects/moltbot/app/scripts/clawtown-ui-e2e.mjs --baseUrl http://localhost:3000 --name MoltbotE2E --runForMs 20000
+```

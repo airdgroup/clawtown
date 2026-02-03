@@ -29,6 +29,12 @@
 - `POST /api/debug/persist-flush`：強制把玩家資料寫到 disk
 - `POST /api/debug/restart-sim`：模擬 server 重啟（保留 disk 資料）
 
+以及 deterministic setup 用的 helpers：
+
+- `POST /api/debug/teleport`：把玩家移到指定座標
+- `POST /api/debug/spawn-monster`：在指定座標生成怪（支援 `color` 欄位，方便做視覺測試）
+- `POST /api/debug/grant-item`：直接給玩家物品
+
 常見問題
 
 1) Port 3100 被佔用
@@ -42,3 +48,8 @@
 - 原則：
   - 優先做 deterministic setup（例如用 bot API 先把角色移到怪旁邊）
   - 每個 test 前先呼叫 `/api/debug/reset`
+
+3) Snapshot 測試失敗（UI baseline looks polished）
+
+- 代表 UI 有預期變更（或 font/尺寸微變）
+- 更新 snapshot：`npm run test:ui:update`
