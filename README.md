@@ -181,3 +181,19 @@ Moltbot Closed Loop（Playwright + 自動打怪）
 
 - 仍可用本 repo 內的 `scripts/cloudbot-local.sh` 做純 curl 的自動打怪 loop：
   - `./scripts/cloudbot-local.sh 'CT1|http://localhost:3000|ABC123'`
+
+## What’s New (Feb 2026)
+
+- Mobile-first controls:
+  - Bottom action bar (1–4) in portrait, no longer covering the right half of the map
+  - Left joystick in Manual mode
+  - iOS Safari fixes (reduced double-tap zoom + better “hide chrome” behavior)
+- Bot onboarding:
+  - Connect prompt is always **English** (works best across third‑party agents)
+  - Canonical spec: `https://clawtown.io/skill.md` (no CLI dependency)
+  - Join codes persist across restarts (`.data/join_codes.json`, 24h TTL); bots can re-link to get a fresh botToken
+- Bot “pet updates” endpoints:
+  - `GET /api/bot/status`
+  - `GET /api/bot/events` (cursor feed)
+  - `POST /api/bot/thought`
+  - `GET /api/bot/map.png` / `minimap.png`

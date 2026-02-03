@@ -39,6 +39,21 @@ Done (v1.1 on feat/stats-v1)
 - Monster population: 5 slimes with distinct, palette-friendly colors
 - Bot visibility: bot online/action timestamps surfaced in UI (and fallback autopilot when linked but no external bot is active)
 
+Done (v1.2 bot onboarding + mobile polish)
+
+- Mobile controls: bottom action bar + left joystick (manual mode)
+- iOS Safari: reduce double-tap zoom issues + better “hide chrome” behavior
+- Bot onboarding: connect prompt is always English; `https://clawtown.io/skill.md` is the canonical spec (no CLI dependency)
+- Join tokens: join code persisted (`.data/join_codes.json`, 24h TTL); re-link works across chat sessions
+- Bot “pet updates”:
+  - `GET /api/bot/status`
+  - `GET /api/bot/events` (cursor feed)
+  - `POST /api/bot/thought` (thought bubbles)
+  - `GET /api/bot/map.png` / `minimap.png` (map-only images)
+- Fixed “flicker” bug: future-dated FX could crash canvas draw under clock skew; added regression test
+- Chat UX: filter toggle (All / People / System) so combat spam doesn’t drown out real chat
+- New player Aha: coach flow = pick language → move → press 4 to kill first slime; celebration is short (no flashing)
+
 Proving tests (examples)
 
 - `World: spawns 5 colored slimes`

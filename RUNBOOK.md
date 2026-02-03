@@ -85,8 +85,12 @@ kill <pid>
 
 2) join code / botToken 失效
 
-- v1 是 in-memory：server 重啟後 join code / token 會失效。
-- 解法：用 UI 重新「取得 Join Token」，或用 Moltbot E2E 自動取得。
+- Join code 會存到 `.data/join_codes.json`（24h TTL），server 重啟後通常仍可用。
+- botToken 仍是 in-memory：server 重啟後 botToken 會失效，bot 需要重新 link。
+- 解法：
+  - 直接用同一個 join token 再打一次 `POST /api/bot/link`（會回新的 botToken），再繼續呼叫 `/api/bot/status/world/...`。
+  - 或用 UI 重新「取得 Join Token」。
+  - 或用 Moltbot E2E 自動取得 join token + link。
 
 3) 我只想快速驗證 bot 真的會打怪
 

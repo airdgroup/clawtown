@@ -2,6 +2,30 @@
 
 This doc is the “do this and it’ll work” plan for shipping Clawtown as a realtime RO-like: one shared world with multiple towns/maps, plus bots (Clawbot/Moltbot) that can connect from anywhere.
 
+## Current Status (Feb 2026)
+
+Shipped:
+
+- Fly.io deployment + custom domain `https://clawtown.io`
+- Join tokens are bot-friendly:
+  - Join code persisted on disk (`.data/join_codes.json`, 24h TTL) to survive restarts
+  - `POST /api/bot/link` returns the existing botToken for that player when possible (new chat session re-link)
+- Bot “pet updates” primitives:
+  - Status JSON: `GET /api/bot/status`
+  - Cursor feed: `GET /api/bot/events`
+  - Thought bubble: `POST /api/bot/thought`
+  - Map-only images: `GET /api/bot/map.png` + `GET /api/bot/minimap.png`
+
+In progress:
+
+- Moltbot integration: poll `/api/bot/events` periodically and forward to Telegram/WhatsApp, optionally attach `map.png`.
+- Minimap UI (in browser) + party coordination pings.
+
+Next:
+
+- Persistence v2 (SQLite on volume) + durable botTokens (so external bots survive restarts without re-link).
+- Multi-map (“one world, many towns”) architecture: gateway + zone servers (RO-like channels/instances).
+
 ## Principles
 
 - Realtime servers are not serverless: keep the world authoritative in one long-running process.
@@ -95,4 +119,3 @@ Goal: low latency globally without needing a single strongly-consistent global r
 - Provide bot endpoints for:
   - Text status summary (level/hp/gear/location/nearby)
   - `minimap.png` (server-rendered) for Telegram/WhatsApp image updates
-

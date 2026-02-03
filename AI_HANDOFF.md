@@ -62,10 +62,15 @@ Bot control model
   - `POST /api/bot/cast` {spell, x?, y?}
   - `POST /api/bot/intent` {text}
   - `POST /api/bot/chat` {text}
+  - `GET /api/bot/status` (concise JSON for chat apps)
+  - `GET /api/bot/events?cursor=0&limit=20` (cursor-based event feed)
+  - `POST /api/bot/thought` {text} (short “thought bubble”, no chat spam)
+  - `GET /api/bot/map.png` / `GET /api/bot/minimap.png` (map-only images)
 
 Important behavior
 
-- Tokens are in-memory: server restart invalidates join codes and bot tokens.
+- Join codes are persisted to disk (`.data/join_codes.json`) and survive restarts (24h TTL).
+- Bot tokens are still in-memory: server restart invalidates bot tokens; bots should re-link via join token.
 - Fallback autopilot exists: if a player is linked + in H-Mode but no external bot is polling recently, the server will move/fight and emit `[BOT]` lines. If an external bot is active, autopilot stays off.
 
 Persistence

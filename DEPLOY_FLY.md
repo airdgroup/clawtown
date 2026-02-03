@@ -72,6 +72,18 @@ In the UI, click “Get Join Token” and confirm the token uses:
 
 `CT1|https://clawtown.io|...`
 
+Also verify the bot spec endpoint (for third‑party agents):
+
+```bash
+curl -s https://clawtown.io/skill.md | head -n 20
+```
+
+If you want `www` to work (without redirect), confirm:
+
+```bash
+curl -I https://www.clawtown.io/ | head -n 5
+```
+
 ## 7) Scaling Guidance (important)
 
 Today Clawtown is single-authoritative world state (in-memory). That means:

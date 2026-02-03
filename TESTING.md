@@ -18,6 +18,15 @@
   - port：3100
   - health：`http://127.0.0.1:3100/api/health`
 
+近期新增的關鍵回歸測試（防止「看起來很小」但很致命的 bug）
+
+- `VFX: future-dated FX does not crash canvas (no negative radius)`
+  - 目的：避免 client/server clock skew 造成 FX 半徑為負、canvas draw throw，導致畫面閃爍或整張不更新。
+- `Coach: first kill celebration shows a single toast (no flashing)`
+  - 目的：確保新手 Aha moment（首殺）不會用閃爍干擾玩家。
+- `Avatar: background removal makes corner pixels transparent (beta)`
+  - 目的：避免使用者上傳「棋盤格假透明」時，邊角無法被處理。
+
 測試專用功能（CT_TEST）
 
 - Playwright run 時會設定 `CT_TEST=1`
