@@ -884,6 +884,23 @@ test('VFX: arrow cast produces arrow fx', async ({ page }) => {
   });
 });
 
+test('VFX: future-dated FX does not crash canvas (no negative radius)', async ({ page }) => {
+  await resetWorld(page);
+  await page.goto('/');
+  await waitForFonts(page);
+  await closeOnboarding(page);
+
+  await page.waitForFunction(() => Boolean((window as any).__ctTest && (window as any).__ctTest.addFx && (window as any).__ctTest.drawOnce));
+
+  await page.evaluate(() => {
+    const api = (window as any).__ctTest;
+    const future = new Date(Date.now() + 2500).toISOString();
+    api.addFx({ id: 'fx_future_1', type: 'mark', x: 200, y: 160, createdAt: future, payload: {} });
+    api.addFx({ id: 'fx_future_2', type: 'spark', x: 260, y: 210, createdAt: future, payload: {} });
+    api.drawOnce();
+  });
+});
+
 test('Loot: defeating a monster drops loot and auto-picks it up', async ({ page }) => {
   await resetWorld(page);
   await page.goto('/');

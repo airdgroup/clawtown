@@ -1278,6 +1278,23 @@ coach = createCoach();
 // Test-only hooks (Playwright runs with CT_TEST=1).
 if (CT_TEST) {
   window.__ctBuildConnectBlock = (opts) => buildConnectBlock(opts || {});
+  window.__ctTest = window.__ctTest || {};
+  window.__ctTest.addFx = (fx) => {
+    try {
+      if (!fx || typeof fx !== 'object') return;
+      recentFx.unshift(fx);
+    } catch {
+      // ignore
+    }
+  };
+  window.__ctTest.drawOnce = () => {
+    try {
+      draw();
+    } catch {
+      // surface as a page error in tests by rethrowing
+      throw new Error('drawOnce failed');
+    }
+  };
 }
 
 function persist() {
@@ -2510,12 +2527,21 @@ function draw() {
 
   // fx
   const now = Date.now();
-  recentFx = recentFx.filter((fx) => now - Date.parse(fx.createdAt) < 1200);
+  // NOTE: createdAt comes from server time. If the client clock is behind, age can be negative.
+  // Clamp to avoid negative radii / IndexSizeError in Canvas APIs (which can cause visible flicker).
+  const clamp01 = (x) => (x < 0 ? 0 : x > 1 ? 1 : x);
+  recentFx = recentFx.filter((fx) => {
+    const created = Date.parse(fx.createdAt);
+    if (!Number.isFinite(created)) return false;
+    const age = Math.max(0, now - created);
+    return age < 1400;
+  });
   for (const fx of recentFx) {
-    const age = now - Date.parse(fx.createdAt);
-    const p = 1 - age / 1200;
+    const created = Date.parse(fx.createdAt);
+    const age = Number.isFinite(created) ? Math.max(0, now - created) : 999999;
+    const p = clamp01(1 - age / 1200);
     ctx.save();
-    ctx.globalAlpha = Math.max(0, p);
+    ctx.globalAlpha = p;
 
     const type = String(fx.type || "spark");
     const r = 18 + (1 - p) * 44;
