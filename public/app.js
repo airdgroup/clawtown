@@ -139,6 +139,9 @@ const boardEl = document.getElementById("board");
 const boardInput = document.getElementById("boardInput");
 const boardSend = document.getElementById("boardSend");
 const chatEl = document.getElementById("chat");
+const chatFilterAllBtn = document.getElementById("chatFilterAll");
+const chatFilterPeopleBtn = document.getElementById("chatFilterPeople");
+const chatFilterSystemBtn = document.getElementById("chatFilterSystem");
 const chatInput = document.getElementById("chatInput");
 const chatSend = document.getElementById("chatSend");
 
@@ -176,6 +179,17 @@ let lang = (() => {
     return v === "en" ? "en" : "zh";
   } catch {
     return "zh";
+  }
+})();
+
+const CHAT_FILTER_KEY = "clawtown.chat.filter"; // "all" | "people" | "system"
+let chatFilter = (() => {
+  try {
+    const v = String(localStorage.getItem(CHAT_FILTER_KEY) || "").trim().toLowerCase();
+    if (v === "people" || v === "system") return v;
+    return "all";
+  } catch {
+    return "all";
   }
 })();
 
@@ -292,6 +306,9 @@ const I18N = {
     "board.placeholder": "寫下傳聞、委託、招募...",
     "board.send": "張貼",
     "chat.title": "聊天",
+    "chat.filterAll": "全部",
+    "chat.filterPeople": "玩家",
+    "chat.filterSystem": "系統",
     "chat.placeholder": "說點什麼...",
     "chat.send": "送出",
     "bot.title": "Bot 想法",
@@ -313,9 +330,9 @@ const I18N = {
     "link.skillHelp": "最穩的做法：叫 Bot 讀 https://clawtown.io/skill.md（不依賴 clawtown CLI）。",
     "link.advanced": "進階：Bot 也可以根據你的 context 來精煉分類帽結果（職業/技能敘事）。",
     "onboarding.title": "歡迎來到 Clawtown",
-    "onboarding.text": "先用手動模式走走看。去「分類帽」拿到你的職業與專屬招式，然後連結你的 CloudBot 解鎖 H-Mode（自動移動/聊天/打怪）。",
+    "onboarding.text": "先選語言（右上）→ 用 WASD/方向鍵（或手機左下搖桿）走動 → 按 4 攻擊，先打倒第一隻史萊姆！想要全自動：去「連結 Bot」把 Join Token 貼給 Moltbot/Clawbot 解鎖 H-Mode。",
     "onboarding.start": "進入小鎮",
-    "onboarding.goHat": "先去分類帽",
+    "onboarding.goHat": "先連結 Bot",
     "onboarding.foot": "小技巧：本機開兩個分頁就能 demo 多人互動。",
     "status.connecting": "連線中...",
     "status.connected": "已連線",
@@ -455,6 +472,9 @@ const I18N = {
     "board.placeholder": "Rumors, quests, recruiting...",
     "board.send": "Post",
     "chat.title": "Chat",
+    "chat.filterAll": "All",
+    "chat.filterPeople": "People",
+    "chat.filterSystem": "System",
     "chat.placeholder": "Say something...",
     "chat.send": "Send",
     "bot.title": "Bot Thoughts",
@@ -476,9 +496,9 @@ const I18N = {
     "link.skillHelp": "Best: tell your bot to read https://clawtown.io/skill.md (no CLI required).",
     "link.advanced": "Advanced: the bot can refine Hat results using your context.",
     "onboarding.title": "Welcome to Clawtown",
-    "onboarding.text": "Start in Manual mode. Visit the Hat to get a job + signature skill, then link your CloudBot to unlock H-Mode (auto move/chat/fight).",
+    "onboarding.text": "Pick a language (top-right) → Move with WASD/Arrows (or the mobile joystick) → Press 4 to defeat your first slime! Want autopilot? Go to “Link Bot”, paste the Join Token into Moltbot/Clawbot, and switch to H-Mode.",
     "onboarding.start": "Enter town",
-    "onboarding.goHat": "Go to the Hat",
+    "onboarding.goHat": "Link Bot first",
     "onboarding.foot": "Tip: open two tabs to demo multiplayer.",
     "status.connecting": "Connecting...",
     "status.connected": "Connected",
@@ -1521,7 +1541,8 @@ async function fileToSquarePngDataUrl(file, size, { removeBg = false } = {}) {
         }
       }
       if (maxX >= 0 && maxY >= 0) {
-        const pad = Math.max(10, Math.floor(Math.max(maxX - minX, maxY - minY) * 0.14));
+        // More padding keeps avatars visually consistent (big-head pixel art won't dominate the map).
+        const pad = Math.max(12, Math.floor(Math.max(maxX - minX, maxY - minY) * 0.22));
         minX = Math.max(0, minX - pad);
         minY = Math.max(0, minY - pad);
         maxX = Math.min(ss - 1, maxX + pad);
@@ -2770,8 +2791,8 @@ function draw() {
     let hasAvatar = false;
 
     if (customImg) {
-      const dw = 68;
-      const dh = 68;
+      const dw = 72;
+      const dh = 72;
       const dx = p.x - dw / 2;
       const dy = p.y - dh + 22;
       ctx.drawImage(customImg, dx, dy, dw, dh);
@@ -2785,8 +2806,8 @@ function draw() {
       const sw = cellW;
       const sh = cellH;
 
-      const dw = 68;
-      const dh = 68;
+      const dw = 72;
+      const dh = 72;
       const dx = p.x - dw / 2;
       const dy = p.y - dh + 22;
       ctx.drawImage(avatarSprite, sx, sy, sw, sh, dx, dy, dw, dh);
@@ -2820,7 +2841,8 @@ function draw() {
     ctx.font = "12px JetBrains Mono";
     ctx.fillStyle = "rgba(19,27,42,0.92)";
     ctx.textAlign = "center";
-    ctx.fillText(p.name, p.x, hasAvatar ? p.y - 58 : p.y - 16);
+    const avatarTopY = p.y - 72 + 22;
+    ctx.fillText(p.name, p.x, hasAvatar ? avatarTopY - 12 : p.y - 16);
 
     // intent (short)
     if (p.intent) {
@@ -2831,7 +2853,7 @@ function draw() {
 
     const speech = localLastSpeech.get(p.id);
     if (speech && Date.now() - speech.atMs < 4500) {
-      drawSpeechBubble(p.x, hasAvatar ? p.y - 86 : p.y - 44, speech.text);
+      drawSpeechBubble(p.x, hasAvatar ? avatarTopY - 40 : p.y - 44, speech.text);
     }
     ctx.restore();
   }
@@ -3096,6 +3118,60 @@ function renderFeed(el, items, kind) {
   el.innerHTML = html;
 }
 
+function refreshChatFilterUI() {
+  const set = (btn, active) => {
+    if (!btn) return;
+    btn.classList.toggle("is-active", Boolean(active));
+    btn.setAttribute("aria-pressed", active ? "true" : "false");
+  };
+  set(chatFilterAllBtn, chatFilter === "all");
+  set(chatFilterPeopleBtn, chatFilter === "people");
+  set(chatFilterSystemBtn, chatFilter === "system");
+}
+
+function setChatFilter(next, { persist = true } = {}) {
+  const v = String(next || "").trim().toLowerCase();
+  const chosen = v === "people" || v === "system" ? v : "all";
+  chatFilter = chosen;
+  refreshChatFilterUI();
+  if (persist) {
+    try {
+      localStorage.setItem(CHAT_FILTER_KEY, chosen);
+    } catch {
+      // ignore
+    }
+  }
+  renderChat();
+}
+
+chatFilterAllBtn?.addEventListener("click", () => setChatFilter("all"));
+chatFilterPeopleBtn?.addEventListener("click", () => setChatFilter("people"));
+chatFilterSystemBtn?.addEventListener("click", () => setChatFilter("system"));
+refreshChatFilterUI();
+
+function chatItemsForFilter(items) {
+  const list = Array.isArray(items) ? items : [];
+  if (chatFilter === "system") return list.filter((c) => c && c.kind === "system");
+  if (chatFilter === "people") return list.filter((c) => c && c.kind === "chat");
+  return list;
+}
+
+function renderChat() {
+  if (!chatEl) return;
+  const list = chatItemsForFilter((state && state.chats) || []);
+  if (list.length === 0) {
+    const hint =
+      chatFilter === "system"
+        ? (lang === "en" ? "No system messages yet." : "目前沒有系統訊息。")
+        : chatFilter === "people"
+          ? (lang === "en" ? "No player messages yet." : "目前沒有玩家聊天。")
+          : (lang === "en" ? "No chat yet." : "目前沒有聊天。");
+    chatEl.innerHTML = `<div class="helper">${escapeHtml(hint)}</div>`;
+    return;
+  }
+  renderFeed(chatEl, list, "chat");
+}
+
 function botThoughtsFromChats(chats) {
   const items = Array.isArray(chats) ? chats : [];
   return items.filter((c) => {
@@ -3206,7 +3282,7 @@ function connect() {
 
       renderHeader();
       renderFeed(boardEl, state.board || [], "board");
-      renderFeed(chatEl, state.chats || [], "chat");
+      renderChat();
       renderBotThoughts();
       refreshHat();
       coach?.onState?.(you, state, recentFx);
@@ -3246,7 +3322,7 @@ function connect() {
 
       renderHeader();
       renderFeed(boardEl, state.board || [], "board");
-      renderFeed(chatEl, state.chats || [], "chat");
+      renderChat();
       renderBotThoughts();
       draw();
       coach?.onState?.(you, state, recentFx);
@@ -3292,7 +3368,7 @@ function openOnboardingIfNeeded() {
     "click",
     () => {
       close();
-      openTab("hat");
+      openTab("link");
     },
     { once: true },
   );

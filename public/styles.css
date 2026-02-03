@@ -1114,6 +1114,11 @@ textarea {
   color: rgba(15, 118, 110, 0.95);
 }
 
+.chat-filter {
+  width: 100%;
+  max-width: 360px;
+}
+
 .pill {
   display: inline-flex;
   align-items: center;

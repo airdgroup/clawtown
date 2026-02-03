@@ -363,6 +363,13 @@
 
               <section class="tab" id="tab-chat" data-tab="chat" role="tabpanel">
                 <div class="card-title" data-i18n="chat.title">聊天</div>
+                <div class="row" style="margin-top:10px">
+                  <div class="seg seg-mini chat-filter" aria-label="Chat filter">
+                    <button class="seg-btn is-active" id="chatFilterAll" type="button" data-i18n="chat.filterAll">全部</button>
+                    <button class="seg-btn" id="chatFilterPeople" type="button" data-i18n="chat.filterPeople">玩家</button>
+                    <button class="seg-btn" id="chatFilterSystem" type="button" data-i18n="chat.filterSystem">系統</button>
+                  </div>
+                </div>
                 <div id="chat" class="feed"></div>
                 <div class="row row-inline">
                   <input id="chatInput" placeholder="說點什麼..." maxlength="280" data-i18n-placeholder="chat.placeholder" />
