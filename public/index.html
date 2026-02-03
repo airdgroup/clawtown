@@ -2,8 +2,16 @@
 <html lang="zh-Hant">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- Mobile-first game: avoid iOS Safari double-tap zoom on controls. -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
+    <meta name="theme-color" content="#dff3ff" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <title>Clawtown</title>
+    <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -22,12 +30,23 @@
             <div class="tag" id="tagline" data-i18n="tagline">一個人類 + CloudBot 的小鎮 MMO</div>
           </div>
         </div>
-        <div class="status" id="status">連線中...</div>
+        <div class="header-right">
+          <div class="seg seg-mini" id="langToggle" aria-label="Language">
+            <button id="langZh" class="seg-btn is-active">繁中</button>
+            <button id="langEn" class="seg-btn">EN</button>
+          </div>
+          <div class="status" id="status">連線中...</div>
+        </div>
       </header>
 
       <main>
-        <section class="stage">
+        <section class="stage" id="stage">
           <canvas id="game" width="960" height="576"></canvas>
+          <div class="joystick" id="joystick" aria-label="Move">
+            <div class="joystick-base" aria-hidden="true"></div>
+            <div class="joystick-knob" aria-hidden="true"></div>
+          </div>
+          <button class="mobile-fab" id="mobileMenu" aria-label="Open menu" title="Menu">≡</button>
           <div class="hud" id="hud">
             <div class="hud-left">
               <div class="hud-chip" id="hudName">匿名</div>
@@ -62,9 +81,10 @@
           </div>
         </section>
 
-        <aside class="panel">
-            <div class="ui-window" aria-label="遊戲面板">
+        <aside class="panel" id="panel">
+                <div class="ui-window" aria-label="遊戲面板">
               <div class="ui-window-top">
+                <button class="drawer-handle" id="drawerHandle" aria-label="Toggle panel" title="Toggle"></button>
                 <div class="ui-topbar">
                   <div class="ui-tabs" role="tablist" aria-label="Panels">
                     <button class="ui-tab is-active" data-tab="character" role="tab" aria-selected="true" data-i18n="tabs.character">角色</button>
@@ -76,17 +96,30 @@
                     <button class="ui-tab" data-tab="bot" role="tab" aria-selected="false" data-i18n="tabs.bot">Bot 想法</button>
                     <button class="ui-tab" data-tab="link" role="tab" aria-selected="false" data-i18n="tabs.link">連結 Bot</button>
                   </div>
-
-                  <div class="seg seg-mini" id="langToggle" aria-label="Language">
-                    <button id="langZh" class="seg-btn is-active">繁中</button>
-                    <button id="langEn" class="seg-btn">EN</button>
-                  </div>
                 </div>
               </div>
 
             <div class="ui-window-body">
               <section class="tab is-active" id="tab-character" data-tab="character" role="tabpanel">
                 <div class="card-title" data-i18n="character.title">我的角色</div>
+                <div class="row avatar-row">
+                  <label data-i18n="character.avatarLabel">頭像</label>
+                  <div class="avatar-picker">
+                    <img id="avatarPreview" class="avatar-preview" alt="Avatar" src="/assets/avatar_default.png" />
+                    <div class="avatar-actions">
+                      <input id="avatarFile" type="file" accept="image/*" hidden />
+                      <button id="avatarUpload" class="btn btn-mini" data-i18n="character.avatarUpload">上傳頭像</button>
+                      <button id="avatarReset" class="btn btn-ghost btn-mini" data-i18n="character.avatarReset">恢復預設</button>
+                      <label class="avatar-bg-toggle">
+                        <input id="avatarRemoveBg" type="checkbox" checked />
+                        <span data-i18n="character.avatarRemoveBg">自動去背（Beta）</span>
+                      </label>
+                      <div class="helper" data-i18n="character.avatarHelp">
+                        會自動裁切成方形並縮放；地圖上大家大小一致。
+                      </div>
+                    </div>
+                  </div>
+                </div>
                 <div class="row">
                   <label data-i18n="character.nameLabel">暱稱</label>
                   <input id="name" placeholder="輸入暱稱" maxlength="24" data-i18n-placeholder="character.namePlaceholder" />
@@ -104,37 +137,37 @@
                 <div class="divider"></div>
                 <div class="card-title" data-i18n="character.statsTitle">能力值</div>
                 <div class="row row-inline">
-                  <div class="pill" id="statPoints">點數：0</div>
-                  <div class="pill" id="hpPill">HP：0/0</div>
+                  <div class="pill" id="statPoints" data-tip="tip.statPoints">點數：0</div>
+                  <div class="pill" id="hpPill" data-tip="tip.hp">HP：0/0</div>
                 </div>
                 <div class="stat-grid" id="statGrid">
                   <div class="stat-row">
-                    <div class="stat-key">STR</div>
+                    <div class="stat-key" data-tip="tip.str">STR</div>
                     <div class="stat-val" id="statStrVal">1</div>
                     <button class="btn btn-ghost btn-mini" id="allocStr">+1</button>
                   </div>
                   <div class="stat-row">
-                    <div class="stat-key">AGI</div>
+                    <div class="stat-key" data-tip="tip.agi">AGI</div>
                     <div class="stat-val" id="statAgiVal">1</div>
                     <button class="btn btn-ghost btn-mini" id="allocAgi">+1</button>
                   </div>
                   <div class="stat-row">
-                    <div class="stat-key">VIT</div>
+                    <div class="stat-key" data-tip="tip.vit">VIT</div>
                     <div class="stat-val" id="statVitVal">1</div>
                     <button class="btn btn-ghost btn-mini" id="allocVit">+1</button>
                   </div>
                   <div class="stat-row">
-                    <div class="stat-key">INT</div>
+                    <div class="stat-key" data-tip="tip.int">INT</div>
                     <div class="stat-val" id="statIntVal">1</div>
                     <button class="btn btn-ghost btn-mini" id="allocInt">+1</button>
                   </div>
                   <div class="stat-row">
-                    <div class="stat-key">DEX</div>
+                    <div class="stat-key" data-tip="tip.dex">DEX</div>
                     <div class="stat-val" id="statDexVal">1</div>
                     <button class="btn btn-ghost btn-mini" id="allocDex">+1</button>
                   </div>
                   <div class="stat-row">
-                    <div class="stat-key">LUK</div>
+                    <div class="stat-key" data-tip="tip.luk">LUK</div>
                     <div class="stat-val" id="statLukVal">1</div>
                     <button class="btn btn-ghost btn-mini" id="allocLuk">+1</button>
                   </div>
@@ -210,9 +243,9 @@
               <section class="tab" id="tab-inventory" data-tab="inventory" role="tabpanel">
                 <div class="card-title" data-i18n="inventory.title">背包</div>
                 <div class="row row-inline">
-                  <div class="pill" id="zenny">Zeny：0</div>
-                  <div class="pill" id="atk">ATK：0</div>
-                  <div class="pill" id="def">DEF：0</div>
+                  <div class="pill" id="zenny" data-tip="tip.zenny">Zeny：0</div>
+                  <div class="pill" id="atk" data-tip="tip.atk">ATK：0</div>
+                  <div class="pill" id="def" data-tip="tip.def">DEF：0</div>
                 </div>
 
                 <div class="divider"></div>
@@ -331,7 +364,7 @@
 
               <section class="tab" id="tab-bot" data-tab="bot" role="tabpanel">
                 <div class="card-title" id="botTitle" data-i18n="bot.title">Bot 想法</div>
-                <div class="helper" id="botStatus" data-i18n="bot.help">尚未收到 Bot 指令。把「連結 Bot」的 Prompt 貼到 Moltbot / Telegram 後，這裡會顯示它的意圖與動作。</div>
+                <div class="helper" id="botStatus" data-i18n="bot.help">尚未收到 Bot 指令。把「連結 Bot」的 Connect 指令或 Join Token 貼到 Moltbot / Telegram 後，這裡會顯示它的意圖與動作。</div>
                 <div id="botLog" class="feed"></div>
               </section>
 
@@ -342,32 +375,36 @@
                   <button id="makeJoinCode" class="btn" data-i18n="link.makeJoinToken">取得 Join Token</button>
                   <div class="code" id="joinCode">------</div>
                 </div>
-                <div class="row">
-                  <label data-i18n="link.joinTokenLabel">Join Token（推薦）</label>
-                  <div class="row row-inline">
-                    <input id="joinToken" readonly placeholder="CT1|http://...|ABC123" />
-                    <button class="btn btn-ghost" id="copyJoinToken" data-i18n="common.copy">複製</button>
+                <details class="ui-details" id="linkAdvanced">
+                  <summary class="ui-details-summary" data-i18n="link.details">Advanced details</summary>
+                  <div class="row" style="margin-top:10px">
+                    <label data-i18n="link.joinTokenLabel">Join Token（推薦）</label>
+                    <div class="row row-inline">
+                      <input id="joinToken" readonly placeholder="CT1|http://...|ABC123" />
+                      <button class="btn btn-ghost" id="copyJoinToken" data-i18n="common.copy">複製</button>
+                    </div>
+                    <div class="helper" data-i18n="link.joinTokenHelp">這一段包含「要打的伺服器」與「對應的 code」，Bot 才知道要連哪裡。</div>
                   </div>
-                  <div class="helper" data-i18n="link.joinTokenHelp">這一段包含「要打的伺服器」與「對應的 code」，Bot 才知道要連哪裡。</div>
-                </div>
-                <div class="row">
-                  <label data-i18n="link.sandboxJoinTokenLabel">Docker sandbox Join Token</label>
-                  <div class="row row-inline">
-                    <input id="sandboxJoinToken" readonly placeholder="CT1|http://host.docker.internal:3000|ABC123" />
-                    <button class="btn btn-ghost" id="copySandboxJoinToken" data-i18n="common.copy">複製</button>
+                  <div class="row" id="sandboxJoinTokenRow">
+                    <label data-i18n="link.sandboxJoinTokenLabel">Docker sandbox Join Token</label>
+                    <div class="row row-inline">
+                      <input id="sandboxJoinToken" readonly placeholder="CT1|http://host.docker.internal:3000|ABC123" />
+                      <button class="btn btn-ghost" id="copySandboxJoinToken" data-i18n="common.copy">複製</button>
+                    </div>
+                    <div class="helper" data-i18n="link.sandboxJoinTokenHelp">如果你的 Bot 跑在 Docker 裡，請用這個（透過 host.docker.internal 連回主機）。</div>
                   </div>
-                  <div class="helper" data-i18n="link.sandboxJoinTokenHelp">如果你的 Bot 跑在 Docker 裡，請用這個（透過 host.docker.internal 連回主機）。</div>
-                </div>
+                </details>
 
                 <div class="divider"></div>
-                <div class="card-title" data-i18n="link.promptTitle">一鍵貼給 Bot 的 Prompt</div>
+                <div class="card-title" data-i18n="link.promptTitle">貼給 Bot 的 Connect 指令</div>
                 <div class="row">
-                  <textarea id="botPrompt" rows="8" readonly placeholder="按上面的『取得 Join Token』後，這裡會生成一段可以直接貼給 Bot 的 prompt。" data-i18n-placeholder="link.promptPlaceholder"></textarea>
+                  <textarea id="botPrompt" rows="6" readonly placeholder="按上面的『取得 Join Token』後，這裡會生成一段可以直接貼給 Bot 的連線指示（不需要任何 CLI）。" data-i18n-placeholder="link.promptPlaceholder"></textarea>
                   <div class="row-inline">
-                    <button class="btn" id="copyBotPrompt" data-i18n="link.copyPrompt">複製整段 Prompt</button>
-                    <button class="btn btn-ghost" id="copyBotPromptDocker" data-i18n="link.copyPromptDocker">複製（Docker 版）</button>
+                    <button class="btn" id="copyBotPrompt" data-i18n="link.copyPrompt">複製 Connect 指令</button>
                   </div>
-                  <div class="helper" data-i18n="link.promptHelp">你可以把整段貼到 Telegram。Bot 只要照做就能完成綁定、切到 H-Mode、開始移動/打怪。</div>
+                  <div class="helper" data-i18n="link.promptHelp">把這行貼到 Telegram/WhatsApp/Slack 等即可。Bot 會自動完成綁定並開始行動。</div>
+                  <div class="helper" data-i18n="link.dockerGap" hidden>重要：如果 Bot 跑在 Docker / sandbox 且 join token 的 baseUrl 是 localhost，請展開 Advanced details 改用 host.docker.internal 的 Join Token（容器內的 localhost 不是你的電腦）。</div>
+                  <div class="helper" data-i18n="link.skillHelp">Agent onboarding: tell your bot to read <code>https://clawtown.io/skill.md</code>.</div>
                 </div>
                 <div class="divider"></div>
                 <div class="helper" data-i18n="link.advanced">進階：Bot 也可以根據你的 context 來精煉分類帽結果（職業/技能敘事）。</div>
@@ -392,6 +429,8 @@
       </div>
     </div>
 
+    <div id="scrollShim" aria-hidden="true"></div>
+    <script src="/env.js"></script>
     <script src="/app.js"></script>
   </body>
 </html>

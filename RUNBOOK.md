@@ -114,6 +114,12 @@ cd /Users/hejianzhi/Namecard/github/clawtown
 ./scripts/cloudbot-local.sh 'CT1|http://localhost:3000|ABC123'
 ```
 
+部署提醒（自訂網域）
+
+- 如果你把 Clawtown 部署到 `https://clawtown.io`，建議在 server 環境變數設定：
+  - `CT_PUBLIC_BASE_URL=https://clawtown.io`
+  - 這樣 UI 產生的 Join Token 會固定用公開網域（而不是內部 host / proxy host）。
+
 補充：如果你有 Moltbot repo 但 Docker Desktop 沒開
 
 - 仍可在 host 直接跑 closed-loop（不經 sandbox）：

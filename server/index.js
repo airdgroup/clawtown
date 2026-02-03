@@ -5,8 +5,10 @@ const crypto = require("crypto");
 
 const express = require("express");
 const WebSocket = require("ws");
+const { PNG } = require("pngjs");
 
 const PORT = Number(process.env.PORT || 3000);
+const HOST = String(process.env.HOST || "127.0.0.1");
 
 const WORLD = {
   width: 30,
@@ -17,8 +19,15 @@ const WORLD = {
 
 const DATA_DIR = process.env.CT_DATA_DIR || path.join(__dirname, "..", ".data");
 const PLAYER_DATA_DIR = path.join(DATA_DIR, "players");
+const AVATAR_DATA_DIR = path.join(DATA_DIR, "avatars");
+const JOIN_CODES_DATA_PATH = path.join(DATA_DIR, "join_codes.json");
 try {
   fs.mkdirSync(PLAYER_DATA_DIR, { recursive: true });
+} catch {
+  // ignore
+}
+try {
+  fs.mkdirSync(AVATAR_DATA_DIR, { recursive: true });
 } catch {
   // ignore
 }
@@ -26,6 +35,11 @@ try {
 function playerDataPath(playerId) {
   const id = String(playerId || "").replace(/[^a-zA-Z0-9_\-]/g, "");
   return path.join(PLAYER_DATA_DIR, `${id}.json`);
+}
+
+function avatarDataPath(playerId) {
+  const id = String(playerId || "").replace(/[^a-zA-Z0-9_\-]/g, "");
+  return path.join(AVATAR_DATA_DIR, `${id}.png`);
 }
 
 function readJsonSafe(filePath) {
@@ -43,12 +57,26 @@ function writeJsonAtomic(filePath, obj) {
   fs.renameSync(tmp, filePath);
 }
 
+function persistJoinCodes() {
+  try {
+    const out = [];
+    for (const [code, rec] of joinCodes.entries()) {
+      if (!code || !rec) continue;
+      out.push({ code, playerId: rec.playerId, expiresAt: rec.expiresAt });
+    }
+    writeJsonAtomic(JOIN_CODES_DATA_PATH, { version: 1, savedAt: new Date().toISOString(), codes: out });
+  } catch {
+    // ignore
+  }
+}
+
 function exportPlayerProgress(p) {
   return {
     version: 2,
     savedAt: new Date().toISOString(),
     id: p.id,
     name: p.name,
+    avatarVersion: Math.max(0, Math.floor(Number(p.avatarVersion) || 0)),
     job: p.job,
     level: p.level,
     xp: p.xp,
@@ -69,6 +97,7 @@ function exportPlayerProgress(p) {
 function importPlayerProgress(p, data) {
   if (!p || !data || typeof data !== "object") return;
   if (typeof data.name === "string") p.name = normalizeName(data.name);
+  if (Number.isFinite(Number(data.avatarVersion))) p.avatarVersion = Math.max(0, Math.floor(Number(data.avatarVersion)));
   if (typeof data.job === "string") p.job = String(data.job);
   if (Number.isFinite(Number(data.level))) p.level = Math.max(1, Math.floor(Number(data.level)));
   if (Number.isFinite(Number(data.xp))) p.xp = Math.max(0, Math.floor(Number(data.xp)));
@@ -172,9 +201,203 @@ function getRequestBaseUrl(req) {
   return `${proto}://${host}`;
 }
 
+function getPublicBaseUrl(req) {
+  // For deployments where the externally reachable URL differs from req host
+  // (e.g. frontend on Vercel, backend elsewhere, or custom reverse proxy).
+  const forced = String(process.env.CT_PUBLIC_BASE_URL || "").trim().replace(/\/+$/, "");
+  if (forced) return forced;
+  return getRequestBaseUrl(req);
+}
+
 function toWsUrl(baseUrl, wsPath) {
   const wsProto = baseUrl.startsWith("https://") ? "wss://" : "ws://";
   return wsProto + baseUrl.replace(/^https?:\/\//, "") + wsPath;
+}
+
+function parseRgba(s) {
+  const raw = String(s || "").trim();
+  const m = raw.match(/^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)(?:\s*,\s*([0-9.]+)\s*)?\)$/i);
+  if (!m) return null;
+  const r = clamp(Math.floor(Number(m[1])), 0, 255);
+  const g = clamp(Math.floor(Number(m[2])), 0, 255);
+  const b = clamp(Math.floor(Number(m[3])), 0, 255);
+  const a = m[4] == null ? 1 : clamp(Number(m[4]), 0, 1);
+  return { r, g, b, a };
+}
+
+function fillRectRgba(png, x0, y0, w, h, rgba) {
+  const x1 = clamp(Math.floor(x0 + w), 0, png.width);
+  const y1 = clamp(Math.floor(y0 + h), 0, png.height);
+  const xStart = clamp(Math.floor(x0), 0, png.width);
+  const yStart = clamp(Math.floor(y0), 0, png.height);
+  const a = clamp(Math.floor(Number(rgba.a) || 255), 0, 255);
+  for (let y = yStart; y < y1; y++) {
+    for (let x = xStart; x < x1; x++) {
+      const idx = (png.width * y + x) << 2;
+      png.data[idx] = rgba.r;
+      png.data[idx + 1] = rgba.g;
+      png.data[idx + 2] = rgba.b;
+      png.data[idx + 3] = a;
+    }
+  }
+}
+
+function drawDotRgba(png, cx, cy, radius, rgba) {
+  const r = Math.max(1, Math.floor(Number(radius) || 1));
+  const x0 = clamp(Math.floor(cx - r), 0, png.width - 1);
+  const x1 = clamp(Math.floor(cx + r), 0, png.width - 1);
+  const y0 = clamp(Math.floor(cy - r), 0, png.height - 1);
+  const y1 = clamp(Math.floor(cy + r), 0, png.height - 1);
+  const a = clamp(Math.floor(Number(rgba.a) || 255), 0, 255);
+  for (let y = y0; y <= y1; y++) {
+    for (let x = x0; x <= x1; x++) {
+      const dx = x - cx;
+      const dy = y - cy;
+      if (dx * dx + dy * dy > r * r) continue;
+      const idx = (png.width * y + x) << 2;
+      png.data[idx] = rgba.r;
+      png.data[idx + 1] = rgba.g;
+      png.data[idx + 2] = rgba.b;
+      png.data[idx + 3] = a;
+    }
+  }
+}
+
+function renderMinimapPng({ you, snapshot, w, h }) {
+  const width = clamp(Math.floor(Number(w) || 480), 180, 1024);
+  const height = clamp(Math.floor(Number(h) || 288), 120, 1024);
+  const png = new PNG({ width, height });
+
+  // Background grass.
+  fillRectRgba(png, 0, 0, width, height, { r: 114, g: 201, b: 112, a: 255 });
+
+  const worldW = WORLD.width * WORLD.tileSize;
+  const worldH = WORLD.height * WORLD.tileSize;
+  const sx = width / worldW;
+  const sy = height / worldH;
+  const toPx = (x, y) => ({ x: Math.round(x * sx), y: Math.round(y * sy) });
+
+  // Paths + plaza + pond (simple landmarks).
+  const pathY = 9 * WORLD.tileSize;
+  fillRectRgba(png, 0, (pathY - 10) * sy, width, 20 * sy, { r: 217, g: 179, b: 118, a: 255 });
+  const pathX = 15 * WORLD.tileSize;
+  fillRectRgba(png, (pathX - 10) * sx, 0, 20 * sx, height, { r: 217, g: 179, b: 118, a: 255 });
+  const plaza = { x: 13 * WORLD.tileSize, y: 7 * WORLD.tileSize, w: 4 * WORLD.tileSize, h: 4 * WORLD.tileSize };
+  fillRectRgba(png, plaza.x * sx, plaza.y * sy, plaza.w * sx, plaza.h * sy, { r: 245, g: 230, b: 204, a: 255 });
+  const pond = { x: 22 * WORLD.tileSize, y: 13 * WORLD.tileSize };
+  const pondPx = toPx(pond.x, pond.y);
+  drawDotRgba(png, pondPx.x, pondPx.y, Math.max(6, Math.round(38 * sx)), { r: 61, g: 148, b: 199, a: 220 });
+
+  const monstersList = Array.isArray(snapshot?.monsters) ? snapshot.monsters : [];
+  for (const m of monstersList) {
+    if (!m || !m.alive) continue;
+    const pos = toPx(m.x, m.y);
+    const c = parseRgba(m.color) || { r: 250, g: 200, b: 90, a: 1 };
+    drawDotRgba(png, pos.x, pos.y, 3, { r: c.r, g: c.g, b: c.b, a: Math.round(c.a * 255) });
+  }
+
+  const playersList = Array.isArray(snapshot?.players) ? snapshot.players : [];
+  for (const p of playersList) {
+    if (!p) continue;
+    const pos = toPx(p.x, p.y);
+    const isYou = you && p.id === you.id;
+    drawDotRgba(png, pos.x, pos.y, isYou ? 5 : 3, isYou ? { r: 255, g: 156, b: 69, a: 255 } : { r: 28, g: 100, b: 230, a: 220 });
+  }
+
+  return PNG.sync.write(png);
+}
+
+function renderMapPng({ you, snapshot, w, h }) {
+  // Render a “map-only screenshot” (no panels) for chat apps.
+  // Default size matches the full world (30*32 by 18*32).
+  const worldW = WORLD.width * WORLD.tileSize;
+  const worldH = WORLD.height * WORLD.tileSize;
+  const width = clamp(Math.floor(Number(w) || worldW), 320, 2048);
+  const height = clamp(Math.floor(Number(h) || worldH), 240, 2048);
+  const png = new PNG({ width, height });
+
+  const sx = width / worldW;
+  const sy = height / worldH;
+  const toPx = (x, y) => ({ x: Math.round(x * sx), y: Math.round(y * sy) });
+
+  // Grass background with subtle checker pattern (similar vibe to the canvas).
+  fillRectRgba(png, 0, 0, width, height, { r: 114, g: 201, b: 112, a: 255 });
+  for (let ty = 0; ty < WORLD.height; ty++) {
+    for (let tx = 0; tx < WORLD.width; tx++) {
+      if ((tx + ty) % 2 !== 0) continue;
+      fillRectRgba(
+        png,
+        tx * WORLD.tileSize * sx,
+        ty * WORLD.tileSize * sy,
+        WORLD.tileSize * sx,
+        WORLD.tileSize * sy,
+        { r: 106, g: 192, b: 104, a: 255 }
+      );
+    }
+  }
+
+  // Paths + plaza + pond (landmarks).
+  const pathY = 9 * WORLD.tileSize;
+  fillRectRgba(png, 0, (pathY - 10) * sy, width, 20 * sy, { r: 217, g: 179, b: 118, a: 255 });
+  const pathX = 15 * WORLD.tileSize;
+  fillRectRgba(png, (pathX - 10) * sx, 0, 20 * sx, height, { r: 217, g: 179, b: 118, a: 255 });
+  const plaza = { x: 13 * WORLD.tileSize, y: 7 * WORLD.tileSize, w: 4 * WORLD.tileSize, h: 4 * WORLD.tileSize };
+  fillRectRgba(png, plaza.x * sx, plaza.y * sy, plaza.w * sx, plaza.h * sy, { r: 245, g: 230, b: 204, a: 255 });
+  const pond = { x: 22 * WORLD.tileSize, y: 13 * WORLD.tileSize };
+  const pondPx = toPx(pond.x, pond.y);
+  drawDotRgba(png, pondPx.x, pondPx.y, Math.max(16, Math.round(52 * Math.min(sx, sy))), { r: 61, g: 148, b: 199, a: 220 });
+
+  // Drops (small squares).
+  const dropsList = Array.isArray(snapshot?.drops) ? snapshot.drops : [];
+  for (const d of dropsList) {
+    if (!d) continue;
+    const pos = toPx(d.x, d.y);
+    const s = Math.max(3, Math.round(4 * Math.min(sx, sy)));
+    fillRectRgba(png, pos.x - s, pos.y - s, s * 2, s * 2, { r: 250, g: 220, b: 90, a: 255 });
+  }
+
+  // Monsters.
+  const monstersList = Array.isArray(snapshot?.monsters) ? snapshot.monsters : [];
+  for (const m of monstersList) {
+    if (!m || !m.alive) continue;
+    const pos = toPx(m.x, m.y);
+    const c = parseRgba(m.color) || { r: 250, g: 200, b: 90, a: 1 };
+    const r = Math.max(8, Math.round(10 * Math.min(sx, sy)));
+    drawDotRgba(png, pos.x, pos.y, r, { r: c.r, g: c.g, b: c.b, a: Math.round(c.a * 255) });
+
+    // HP bar (simple, no text).
+    const hp = Math.max(0, Number(m.hp) || 0);
+    const maxHp = Math.max(1, Number(m.maxHp) || 1);
+    const frac = clamp(hp / maxHp, 0, 1);
+    const barW = Math.max(18, Math.round(34 * sx));
+    const barH = Math.max(3, Math.round(4 * sy));
+    const barX = pos.x - Math.floor(barW / 2);
+    const barY = pos.y - r - barH - Math.max(2, Math.round(2 * sy));
+    fillRectRgba(png, barX, barY, barW, barH, { r: 20, g: 40, b: 20, a: 180 });
+    fillRectRgba(png, barX, barY, Math.floor(barW * frac), barH, { r: 74, g: 209, b: 92, a: 220 });
+  }
+
+  // Players (draw after monsters so you’re visible).
+  const playersList = Array.isArray(snapshot?.players) ? snapshot.players : [];
+  for (const p of playersList) {
+    if (!p) continue;
+    const pos = toPx(p.x, p.y);
+    const isYou = you && p.id === you.id;
+    const r = Math.max(9, Math.round((isYou ? 12 : 10) * Math.min(sx, sy)));
+    drawDotRgba(
+      png,
+      pos.x,
+      pos.y,
+      r,
+      isYou ? { r: 255, g: 156, b: 69, a: 255 } : { r: 28, g: 100, b: 230, a: 230 }
+    );
+    if (isYou) {
+      // Tiny “focus ring”.
+      drawDotRgba(png, pos.x, pos.y, Math.max(1, r + 4), { r: 255, g: 240, b: 220, a: 70 });
+    }
+  }
+
+  return PNG.sync.write(png);
 }
 
 function levelForXp(xp) {
@@ -527,6 +750,23 @@ const boardPosts = []; // newest last
 const chats = []; // newest last
 const fxEvents = []; // ephemeral; stored briefly for late join
 
+// Join codes are meant to be re-usable across chat sessions and should survive server restarts.
+// We keep them in-memory for speed and persist the small map to disk.
+try {
+  const saved = readJsonSafe(JOIN_CODES_DATA_PATH);
+  const list = Array.isArray(saved?.codes) ? saved.codes : [];
+  for (const row of list) {
+    const code = String(row?.code || "").trim().toUpperCase();
+    const playerId = String(row?.playerId || "").trim();
+    const expiresAt = Number(row?.expiresAt || 0);
+    if (!code || !playerId || !Number.isFinite(expiresAt)) continue;
+    if (nowMs() > expiresAt) continue;
+    joinCodes.set(code, { playerId, expiresAt });
+  }
+} catch {
+  // ignore
+}
+
 let emitFx = () => {};
 
 function getOrCreatePlayer(playerId, name) {
@@ -538,6 +778,7 @@ function getOrCreatePlayer(playerId, name) {
     p = {
       id,
       name: normalizeName(name) || (saved && saved.name) || "Anonymous",
+      avatarVersion: 0,
       x: Math.floor(WORLD.width / 2) * WORLD.tileSize,
       y: Math.floor(WORLD.height / 2) * WORLD.tileSize,
       facing: "down",
@@ -628,6 +869,7 @@ function toPublicPlayer(p) {
   return {
     id: p.id,
     name: p.name,
+    avatarVersion: Math.max(0, Math.floor(Number(p.avatarVersion) || 0)),
     x: Math.round(p.x),
     y: Math.round(p.y),
     facing: p.facing,
@@ -1327,6 +1569,22 @@ if (String(process.env.CT_TEST || "").trim() === "1") {
     } catch {
       // ignore
     }
+    try {
+      if (fs.existsSync(AVATAR_DATA_DIR)) {
+        for (const f of fs.readdirSync(AVATAR_DATA_DIR)) {
+          if (f.endsWith('.png')) {
+            try { fs.unlinkSync(path.join(AVATAR_DATA_DIR, f)); } catch { /* ignore */ }
+          }
+        }
+      }
+    } catch {
+      // ignore
+    }
+    try {
+      if (fs.existsSync(JOIN_CODES_DATA_PATH)) fs.unlinkSync(JOIN_CODES_DATA_PATH);
+    } catch {
+      // ignore
+    }
 
     spawnInitialMonsters();
     res.json({ ok: true });
@@ -1350,6 +1608,7 @@ if (String(process.env.CT_TEST || "").trim() === "1") {
     players.clear();
     botTokens.clear();
     joinCodes.clear();
+    persistJoinCodes();
     monsters.clear();
     drops.clear();
     boardPosts.length = 0;
@@ -1424,10 +1683,88 @@ app.post("/api/players/ensure", (req, res) => {
   res.json({ ok: true, player: toPublicPlayer(p) });
 });
 
+app.get("/api/avatars/:playerId.png", (req, res) => {
+  const playerId = String(req.params?.playerId || "").trim();
+  if (!playerId) return res.status(400).end();
+  const filePath = avatarDataPath(playerId);
+  try {
+    if (!fs.existsSync(filePath)) return res.status(404).end();
+    const buf = fs.readFileSync(filePath);
+    res.setHeader("Content-Type", "image/png");
+    res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+    res.end(buf);
+  } catch {
+    res.status(500).end();
+  }
+});
+
+app.post("/api/players/avatar", (req, res) => {
+  const playerId = String(req.body?.playerId || "").trim();
+  if (!playerId) return res.status(400).json({ ok: false, error: "missing playerId" });
+  const p = players.get(playerId);
+  if (!p) return res.status(404).json({ ok: false, error: "unknown playerId" });
+
+  const reset = Boolean(req.body?.reset);
+  if (reset) {
+    p.avatarVersion = 0;
+    markDirty(p);
+    try {
+      const fp = avatarDataPath(playerId);
+      if (fs.existsSync(fp)) fs.unlinkSync(fp);
+    } catch {
+      // ignore
+    }
+    persistPlayerIfNeeded(p, true);
+    return res.json({ ok: true, avatarVersion: 0 });
+  }
+
+  const pngDataUrl = String(req.body?.pngDataUrl || "").trim();
+  if (!pngDataUrl) return res.status(400).json({ ok: false, error: "missing pngDataUrl" });
+  const m = pngDataUrl.match(/^data:image\/png;base64,([A-Za-z0-9+/=]+)$/);
+  if (!m) return res.status(400).json({ ok: false, error: "expected data:image/png;base64" });
+  let buf;
+  try {
+    buf = Buffer.from(m[1], "base64");
+  } catch {
+    return res.status(400).json({ ok: false, error: "invalid base64" });
+  }
+
+  // Guardrails: keep it small and ensure it's actually a PNG.
+  if (!buf || buf.length < 16) return res.status(400).json({ ok: false, error: "invalid png" });
+  if (buf.length > 220 * 1024) return res.status(413).json({ ok: false, error: "avatar too large" });
+  const sig = buf.slice(0, 8);
+  const pngSig = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  if (!sig.equals(pngSig)) return res.status(400).json({ ok: false, error: "not a png" });
+
+  try {
+    const fp = avatarDataPath(playerId);
+    const tmp = `${fp}.tmp.${process.pid}.${Math.random().toString(16).slice(2)}`;
+    fs.writeFileSync(tmp, buf);
+    fs.renameSync(tmp, fp);
+  } catch {
+    return res.status(500).json({ ok: false, error: "failed to save avatar" });
+  }
+
+  p.avatarVersion = nowMs();
+  markDirty(p);
+  persistPlayerIfNeeded(p, true);
+  res.json({ ok: true, avatarVersion: p.avatarVersion });
+});
+
 app.post("/api/join-codes", (req, res) => {
   const { playerId } = req.body || {};
   const p = players.get(String(playerId || "").trim());
   if (!p) return res.status(404).json({ ok: false, error: "unknown playerId" });
+
+  // Cleanup expired codes (best-effort).
+  try {
+    for (const [c, r] of joinCodes.entries()) {
+      if (!r || nowMs() > Number(r.expiresAt || 0)) joinCodes.delete(c);
+    }
+    persistJoinCodes();
+  } catch {
+    // ignore
+  }
 
   // one active code per player
   for (const [code, v] of joinCodes.entries()) {
@@ -1435,10 +1772,13 @@ app.post("/api/join-codes", (req, res) => {
   }
 
   const joinCode = randomCode(6);
-  const expiresAt = nowMs() + 5 * 60 * 1000;
+  // Join tokens should be re-usable across chat sessions. Users may paste the same join token
+  // into a new Telegram/WhatsApp session to re-link and query status.
+  const expiresAt = nowMs() + 24 * 60 * 60 * 1000; // 24h
   joinCodes.set(joinCode, { playerId: p.id, expiresAt });
+  persistJoinCodes();
 
-  const baseUrl = getRequestBaseUrl(req);
+  const baseUrl = getPublicBaseUrl(req);
   const host = baseUrl.replace(/^https?:\/\//, "");
   const port = host.includes(":") ? host.split(":").pop() : "";
   const sandboxBaseUrl = port ? `http://host.docker.internal:${port}` : null;
@@ -1510,21 +1850,27 @@ app.post("/api/bot/link", (req, res) => {
   if (!rec) return res.status(404).json({ ok: false, error: "invalid joinCode" });
   if (nowMs() > rec.expiresAt) {
     joinCodes.delete(code);
+    persistJoinCodes();
     return res.status(410).json({ ok: false, error: "joinCode expired" });
   }
 
   const p = players.get(rec.playerId);
   if (!p) return res.status(404).json({ ok: false, error: "player missing" });
 
-  // rotate token
+  // If this player already has a botToken, return it to allow “re-link” from a new chat session
+  // without breaking the currently running bot loop.
+  let botToken = null;
   for (const [t, pid] of botTokens.entries()) {
-    if (pid === p.id) botTokens.delete(t);
+    if (pid === p.id) {
+      botToken = t;
+      break;
+    }
   }
-
-  const botToken = randomToken("ctbot");
-  botTokens.set(botToken, p.id);
+  if (!botToken) {
+    botToken = randomToken("ctbot");
+    botTokens.set(botToken, p.id);
+  }
   p.linkedBot = true;
-  joinCodes.delete(code);
 
   pushChat({
     kind: "system",
@@ -1536,8 +1882,8 @@ app.post("/api/bot/link", (req, res) => {
     ok: true,
     botToken,
     playerId: p.id,
-    apiBaseUrl: getRequestBaseUrl(req),
-    wsUrl: toWsUrl(getRequestBaseUrl(req), "/ws"),
+    apiBaseUrl: getPublicBaseUrl(req),
+    wsUrl: toWsUrl(getPublicBaseUrl(req), "/ws"),
   });
 });
 
@@ -1545,6 +1891,32 @@ app.get("/api/bot/me", (req, res) => {
   const auth = authBot(req);
   if (!auth) return res.status(401).json({ ok: false, error: "unauthorized" });
   res.json({ ok: true, player: toPublicPlayer(auth.player) });
+});
+
+// A concise, bot-friendly status endpoint for “pet updates” in chat apps.
+// (level/hp/gear/location + nearby counts). Use /api/bot/minimap.png for an image.
+app.get("/api/bot/status", (req, res) => {
+  const auth = authBot(req);
+  if (!auth) return res.status(401).json({ ok: false, error: "unauthorized" });
+  const p = auth.player;
+  p.externalBotLastActionAt = nowMs();
+
+  const r2 = Math.pow(6 * WORLD.tileSize, 2);
+  const nearbyPlayers = Array.from(players.values()).filter((pp) => pp.id !== p.id && dist2(pp.x, pp.y, p.x, p.y) <= r2).length;
+  const nearbyMonsters = Array.from(monsters.values()).filter((m) => m.alive && dist2(m.x, m.y, p.x, p.y) <= r2).length;
+  const nearbyDrops = Array.from(drops.values()).filter((d) => dist2(d.x, d.y, p.x, p.y) <= r2).length;
+
+  res.json({
+    ok: true,
+    time: new Date().toISOString(),
+    you: toPublicPlayer(p),
+    nearby: {
+      players: nearbyPlayers,
+      monsters: nearbyMonsters,
+      drops: nearbyDrops,
+      radiusTiles: 6,
+    },
+  });
 });
 
 app.get("/api/bot/world", (req, res) => {
@@ -1588,6 +1960,30 @@ app.get("/api/bot/world", (req, res) => {
   };
 
   res.json({ ok: true, snapshot });
+});
+
+app.get("/api/bot/minimap.png", (req, res) => {
+  const auth = authBot(req);
+  if (!auth) return res.status(401).end();
+  const p = auth.player;
+  p.externalBotLastActionAt = nowMs();
+  const snapshot = currentState();
+  const buf = renderMinimapPng({ you: p, snapshot, w: req.query?.w, h: req.query?.h });
+  res.setHeader("Content-Type", "image/png");
+  res.setHeader("Cache-Control", "no-store");
+  res.end(buf);
+});
+
+app.get("/api/bot/map.png", (req, res) => {
+  const auth = authBot(req);
+  if (!auth) return res.status(401).end();
+  const p = auth.player;
+  p.externalBotLastActionAt = nowMs();
+  const snapshot = currentState();
+  const buf = renderMapPng({ you: p, snapshot, w: req.query?.w, h: req.query?.h });
+  res.setHeader("Content-Type", "image/png");
+  res.setHeader("Cache-Control", "no-store");
+  res.end(buf);
 });
 
 app.post("/api/bot/mode", (req, res) => {
@@ -1746,7 +2142,28 @@ app.post("/api/bot/cast", (req, res) => {
   res.json({ ok: true, result: out });
 });
 
-app.use(express.static(path.join(__dirname, "..", "public")));
+// Expose minimal runtime flags to the client without turning the static HTML into a template.
+app.get("/env.js", (_req, res) => {
+  const env = {
+    ctTest: String(process.env.CT_TEST || "") === "1",
+  };
+  res.setHeader("Content-Type", "application/javascript; charset=utf-8");
+  res.setHeader("Cache-Control", "no-store");
+  res.end(`window.__CT_ENV__ = ${JSON.stringify(env)};`);
+});
+
+app.use(
+  express.static(path.join(__dirname, "..", "public"), {
+    setHeaders(res, filePath) {
+      // Avoid “stale JS” issues during rapid iteration / deploys.
+      // We can revisit long-term caching once we add proper asset versioning.
+      const base = path.basename(String(filePath || ""));
+      if (base === "index.html" || base === "app.js" || base === "styles.css" || base === "skill.md" || base === "skill.json") {
+        res.setHeader("Cache-Control", "no-store");
+      }
+    },
+  })
+);
 
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server, path: "/ws" });
@@ -1872,6 +2289,7 @@ wss.on("connection", (ws, req) => {
 
     if (type === "set_name") {
       player.name = normalizeName(msg?.name);
+      markDirty(player);
       return;
     }
 
@@ -1899,6 +2317,7 @@ wss.on("connection", (ws, req) => {
         tagline: player.signatureSpell?.tagline || "",
         effect,
       };
+      markDirty(player);
       return;
     }
 
@@ -1908,6 +2327,7 @@ wss.on("connection", (ws, req) => {
       const allowed = new Set(["signature", "fireball", "hail", "arrow", "cleave", "flurry"]);
       const spell = allowed.has(spellRaw) ? spellRaw : "signature";
       player.jobSkill = { name, spell };
+      markDirty(player);
       return;
     }
 
@@ -2200,7 +2620,8 @@ setInterval(tick, WORLD.tickMs);
 
 spawnInitialMonsters();
 
-server.listen(PORT, () => {
+server.listen(PORT, HOST, () => {
   // eslint-disable-next-line no-console
-  console.log(`Clawtown running: http://localhost:${PORT}`);
+  const prettyHost = HOST === "0.0.0.0" ? "localhost" : HOST;
+  console.log(`Clawtown running: http://${prettyHost}:${PORT}`);
 });

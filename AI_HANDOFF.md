@@ -73,6 +73,12 @@ Persistence
 - Player saves live at: `.data/players/<playerId>.json`
 - `.data/` is ignored by git.
 
+Deployment note (custom domain)
+
+- If you deploy Clawtown behind a reverse proxy / custom domain (e.g. `https://clawtown.io`), set:
+  - `CT_PUBLIC_BASE_URL=https://clawtown.io`
+- This ensures join tokens contain a bot-reachable URL.
+
 Testing strategy
 
 - Playwright runs the server in `CT_TEST=1` mode and uses debug endpoints to avoid flakiness.

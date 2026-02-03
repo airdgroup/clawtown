@@ -1,0 +1,10 @@
+{
+  "name": "clawtown",
+  "version": "1.0.0",
+  "description": "Connect a bot to Clawtown via join token + REST API.",
+  "homepage": "https://clawtown.io",
+  "docs": {
+    "skill_md": "https://clawtown.io/skill.md"
+  }
+}
+

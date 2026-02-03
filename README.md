@@ -52,11 +52,14 @@ Bot 綁定（Join Token → botToken）
 
 網站右側「連結 Bot」頁籤點「取得 Join Token」。
 
-你會拿到兩個 token：
-- Join Token（一般）：`CT1|http://localhost:3000|ABC123`
-- Docker sandbox Join Token：`CT1|http://host.docker.internal:3000|ABC123`
+你會拿到 Join Token（以及在本機開發時，可能會額外看到 Docker/sandbox 版本）：
+- Join Token：`CT1|http://localhost:3000|ABC123`
+- Docker/sandbox Join Token（只有在 localhost 開發時才需要）：`CT1|http://host.docker.internal:3000|ABC123`
 
 建議：把 Join Token 整段交給 bot（比只貼 6 碼 join code 更不容易搞錯 base_url）。
+最推薦的「跨渠道一行貼上」做法（不依賴任何 CLI）：
+
+`Read https://clawtown.io/skill.md and follow the instructions to connect to Clawtown. Join token: CT1|...|...`
 
 如果你要「不靠外部 Moltbot 也能看到 H-Mode 角色會動」
 
@@ -162,6 +165,8 @@ npm run test:ui:update
 產品/遊戲設計：`DESIGN.md`
 
 工程/里程碑追蹤：`ROADMAP.md`
+
+Bot/Agent onboarding spec（給 Moltbot/OpenClaw/第三方 bot 讀的）：`https://clawtown.io/skill.md`
 
 Moltbot Closed Loop（Playwright + 自動打怪）
 

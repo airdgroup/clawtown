@@ -10,6 +10,12 @@ const langZhBtn = document.getElementById("langZh");
 const langEnBtn = document.getElementById("langEn");
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
+const stageEl = document.getElementById("stage");
+const panelEl = document.getElementById("panel");
+const drawerHandleEl = document.getElementById("drawerHandle");
+const mobileMenuBtn = document.getElementById("mobileMenu");
+const joystickEl = document.getElementById("joystick");
+const joystickKnobEl = joystickEl ? joystickEl.querySelector(".joystick-knob") : null;
 
 // Temporary avatar sprite (can be replaced with better skins later)
 const avatarSprite = new Image();
@@ -19,6 +25,30 @@ avatarSprite.onload = () => {
   avatarSpriteReady = true;
 };
 
+// Custom avatar cache (player-uploaded). Always rendered at the same in-world size.
+const avatarImgCache = new Map(); // url -> { img, ready, lastUsedAt }
+function getCustomAvatarImg(url) {
+  const key = String(url || "").trim();
+  if (!key) return null;
+  let v = avatarImgCache.get(key);
+  if (!v) {
+    const img = new Image();
+    v = { img, ready: false, lastUsedAt: Date.now() };
+    img.onload = () => { v.ready = true; };
+    img.onerror = () => { v.ready = false; };
+    img.src = key;
+    avatarImgCache.set(key, v);
+
+    // Basic LRU-ish cleanup.
+    if (avatarImgCache.size > 120) {
+      const entries = Array.from(avatarImgCache.entries()).sort((a, b) => (a[1].lastUsedAt || 0) - (b[1].lastUsedAt || 0));
+      for (let i = 0; i < 40; i++) avatarImgCache.delete(entries[i][0]);
+    }
+  }
+  v.lastUsedAt = Date.now();
+  return v.ready ? v.img : null;
+}
+
 const hudNameEl = document.getElementById("hudName");
 const hudJobEl = document.getElementById("hudJob");
 const hudLevelEl = document.getElementById("hudLevel");
@@ -26,6 +56,11 @@ const hudModeEl = document.getElementById("hudMode");
 const hudBotEl = document.getElementById("hudBot");
 
 const nameInput = document.getElementById("name");
+const avatarPreviewEl = document.getElementById("avatarPreview");
+const avatarFileEl = document.getElementById("avatarFile");
+const avatarUploadBtn = document.getElementById("avatarUpload");
+const avatarResetBtn = document.getElementById("avatarReset");
+const avatarRemoveBgEl = document.getElementById("avatarRemoveBg");
 const jobEl = document.getElementById("job");
 const levelEl = document.getElementById("level");
 const modeManualBtn = document.getElementById("modeManual");
@@ -89,7 +124,6 @@ const copySandboxJoinTokenBtn = document.getElementById("copySandboxJoinToken");
 
 const botPromptEl = document.getElementById("botPrompt");
 const copyBotPromptBtn = document.getElementById("copyBotPrompt");
-const copyBotPromptDockerBtn = document.getElementById("copyBotPromptDocker");
 
 const skill1NameEl = document.getElementById("skill1Name");
 const skill1EffectEl = document.getElementById("skill1Effect");
@@ -126,6 +160,8 @@ const onboardingEl = document.getElementById("onboarding");
 const onboardingStart = document.getElementById("onboardingStart");
 const onboardingGoHat = document.getElementById("onboardingGoHat");
 
+const langToggleEl = document.getElementById("langToggle");
+
 const tabButtons = Array.from(document.querySelectorAll(".ui-tab"));
 const tabPanels = Array.from(document.querySelectorAll(".tab"));
 
@@ -138,6 +174,10 @@ let lang = (() => {
     return "zh";
   }
 })();
+
+const CT_TEST = Boolean(globalThis.__CT_ENV__ && globalThis.__CT_ENV__.ctTest);
+let coach = null;
+let hoverTips = null;
 
 const I18N = {
   zh: {
@@ -156,6 +196,11 @@ const I18N = {
     "tabs.bot": "Bot 想法",
     "tabs.link": "連結 Bot",
     "character.title": "我的角色",
+    "character.avatarLabel": "頭像",
+    "character.avatarUpload": "上傳頭像",
+    "character.avatarReset": "恢復預設",
+    "character.avatarRemoveBg": "自動去背（Beta）",
+    "character.avatarHelp": "會自動裁切成方形並縮放；地圖上大家大小一致。",
     "character.nameLabel": "暱稱",
     "character.namePlaceholder": "輸入暱稱",
     "character.statsTitle": "能力值",
@@ -236,19 +281,22 @@ const I18N = {
     "chat.placeholder": "說點什麼...",
     "chat.send": "送出",
     "bot.title": "Bot 想法",
-    "bot.help": "尚未收到 Bot 指令。把「連結 Bot」的 Prompt 貼到 Moltbot / Telegram 後，這裡會顯示它的意圖與動作。",
+    "bot.help": "尚未收到 Bot 指令。把「連結 Bot」的 Connect 指令或 Join Token 貼到 Moltbot / Telegram 後，這裡會顯示它的意圖與動作。",
     "link.title": "連結你的 CloudBot",
     "link.help": "流程：產生 Join Token → 貼給 Bot → Bot 自動綁定 → 你切到 H-Mode。",
     "link.makeJoinToken": "取得 Join Token",
+    "link.details": "進階資訊（Join Token）",
     "link.joinTokenLabel": "Join Token（推薦）",
     "link.joinTokenHelp": "這一段包含「要打的伺服器」與「對應的 code」，Bot 才知道要連哪裡。",
     "link.sandboxJoinTokenLabel": "Docker sandbox Join Token",
     "link.sandboxJoinTokenHelp": "如果你的 Bot 跑在 Docker 裡，請用這個（透過 host.docker.internal 連回主機）。",
-    "link.promptTitle": "一鍵貼給 Bot 的 Prompt",
-    "link.promptPlaceholder": "按上面的『取得 Join Token』後，這裡會生成一段可以直接貼給 Bot 的 prompt。",
-    "link.copyPrompt": "複製整段 Prompt",
-    "link.copyPromptDocker": "複製（Docker 版）",
-    "link.promptHelp": "你可以把整段貼到 Telegram。Bot 只要照做就能完成綁定、切到 H-Mode、開始移動/打怪。",
+    "link.promptTitle": "貼給 Bot 的 Connect 指令",
+    "link.promptPlaceholder": "按上面的『取得 Join Token』後，這裡會生成一段可以直接貼給 Bot 的 connect 指令。",
+    "link.copyPrompt": "複製 Connect 指令",
+    "link.copyPromptDocker": "複製 Connect（Docker 版）",
+    "link.promptHelp": "最簡流程：取得 Join Token → 複製這段 → 貼到 Telegram/WhatsApp/Discord/Slack 的 bot。",
+    "link.dockerGap": "只有本機開發才需要：Bot 跑在 Docker 時，不能用 localhost，請改用 host.docker.internal 版 token。",
+    "link.skillHelp": "最穩的做法：叫 Bot 讀 https://clawtown.io/skill.md（不依賴 clawtown CLI）。",
     "link.advanced": "進階：Bot 也可以根據你的 context 來精煉分類帽結果（職業/技能敘事）。",
     "onboarding.title": "歡迎來到 Clawtown",
     "onboarding.text": "先用手動模式走走看。去「分類帽」拿到你的職業與專屬招式，然後連結你的 CloudBot 解鎖 H-Mode（自動移動/聊天/打怪）。",
@@ -271,6 +319,28 @@ const I18N = {
     "hud.botUnlinked": "Bot：未連結",
     "hud.modeManual": "手動",
     "hud.modeAgent": "H-Mode",
+
+    // Hover tips (beginner-friendly, RO-ish)
+    "tip.statPoints": "可分配點數。每升 1 等會 +1 點，用來強化 STR/AGI/VIT/INT/DEX/LUK。",
+    "tip.hp": "生命值。降到 0 會倒下並在廣場復活。VIT 會提高最大 HP。",
+    "tip.atk": "攻擊力。影響普攻/多數技能傷害。主要來自 STR + 武器/飾品。",
+    "tip.def": "防禦力。降低受到的傷害。主要來自 VIT + 防具。",
+    "tip.zenny": "Zeny（金幣）。打怪會掉落；部分隊伍/挑戰會消耗。",
+    "tip.str": "STR：更痛（提高 ATK）。",
+    "tip.agi": "AGI：更快出手（提高 ASPD）。",
+    "tip.vit": "VIT：更耐打（提高 HP/DEF）。",
+    "tip.int": "INT：法術成長預留（v1 仍簡化）。",
+    "tip.dex": "DEX：命中/遠程手感預留（v1 仍簡化）。",
+    "tip.luk": "LUK：更容易爆（提高 CRIT）。",
+
+    // Micro tutorial ("Aha" fast path)
+    "coach.lang": "先選語言（右上角）。",
+    "coach.move.mobile": "拖曳左下搖桿移動。",
+    "coach.move.desktop": "WASD/方向鍵移動，或點地面走路。",
+    "coach.attack": "Aha：按「4 / ATK」打最近的史萊姆。",
+    "coach.loot": "看到掉落了嗎？靠近會自動撿起。去「背包」看看。",
+    "coach.equip": "把武器裝上，ATK 會立刻變強。",
+    "coach.done": "恭喜！你打倒第一隻史萊姆。接下來：打怪 → 撿裝 → 變強。",
   },
   en: {
     tagline: "A human + CloudBot town MMO",
@@ -288,6 +358,11 @@ const I18N = {
     "tabs.bot": "Bot Thoughts",
     "tabs.link": "Link Bot",
     "character.title": "My Character",
+    "character.avatarLabel": "Avatar",
+    "character.avatarUpload": "Upload",
+    "character.avatarReset": "Reset",
+    "character.avatarRemoveBg": "Auto remove background (Beta)",
+    "character.avatarHelp": "Auto-crops to a square and resizes. Everyone stays the same size on the map.",
     "character.nameLabel": "Name",
     "character.namePlaceholder": "Enter name",
     "character.statsTitle": "Stats",
@@ -368,19 +443,22 @@ const I18N = {
     "chat.placeholder": "Say something...",
     "chat.send": "Send",
     "bot.title": "Bot Thoughts",
-    "bot.help": "No bot actions yet. Paste the prompt from Link Bot into Moltbot / Telegram to see intents and actions here.",
+    "bot.help": "No bot actions yet. Paste the Connect command or Join Token from Link Bot into Moltbot / Telegram to see intents and actions here.",
     "link.title": "Link your CloudBot",
     "link.help": "Flow: generate a Join Token → paste to your bot → bot links automatically → switch to H-Mode.",
     "link.makeJoinToken": "Get Join Token",
+    "link.details": "Advanced (Join Token)",
     "link.joinTokenLabel": "Join Token (recommended)",
     "link.joinTokenHelp": "This includes the server URL and code so the bot knows where to connect.",
     "link.sandboxJoinTokenLabel": "Docker sandbox Join Token",
     "link.sandboxJoinTokenHelp": "If your bot runs in Docker, use this (connect back via host.docker.internal).",
-    "link.promptTitle": "One-click prompt for your bot",
-    "link.promptPlaceholder": "After you click Get Join Token, a ready-to-paste prompt appears here.",
-    "link.copyPrompt": "Copy prompt",
-    "link.copyPromptDocker": "Copy (Docker)",
-    "link.promptHelp": "Paste this into Telegram. The bot will link, switch to H-Mode, and start moving/fighting.",
+    "link.promptTitle": "Connect command for your bot",
+    "link.promptPlaceholder": "After you click Get Join Token, a ready-to-paste connect command appears here.",
+    "link.copyPrompt": "Copy connect command",
+    "link.copyPromptDocker": "Copy connect (Docker)",
+    "link.promptHelp": "Fast path: Get Join Token → Copy this → Paste into your bot (Telegram/WhatsApp/Discord/Slack).",
+    "link.dockerGap": "Local dev only: Docker bots cannot reach localhost; use the host.docker.internal token.",
+    "link.skillHelp": "Best: tell your bot to read https://clawtown.io/skill.md (no CLI required).",
     "link.advanced": "Advanced: the bot can refine Hat results using your context.",
     "onboarding.title": "Welcome to Clawtown",
     "onboarding.text": "Start in Manual mode. Visit the Hat to get a job + signature skill, then link your CloudBot to unlock H-Mode (auto move/chat/fight).",
@@ -403,6 +481,28 @@ const I18N = {
     "hud.botUnlinked": "Bot: not linked",
     "hud.modeManual": "Manual",
     "hud.modeAgent": "H-Mode",
+
+    // Hover tips
+    "tip.statPoints": "Spendable points. Each level gives +1 point to STR/AGI/VIT/INT/DEX/LUK.",
+    "tip.hp": "Hit Points. At 0 you faint and respawn. VIT increases max HP.",
+    "tip.atk": "Attack Power. Affects basic attacks and most skills. Mainly STR + weapon/accessory.",
+    "tip.def": "Defense. Reduces incoming damage. Mainly VIT + armor.",
+    "tip.zenny": "Zeny (gold). Dropped by monsters; some party/challenges consume it.",
+    "tip.str": "STR: hit harder (ATK).",
+    "tip.agi": "AGI: act faster (ASPD).",
+    "tip.vit": "VIT: tankier (HP/DEF).",
+    "tip.int": "INT: reserved for magic scaling (v1 is simplified).",
+    "tip.dex": "DEX: reserved for hit/ranged feel (v1 is simplified).",
+    "tip.luk": "LUK: crit more often (CRIT).",
+
+    // Micro tutorial
+    "coach.lang": "Pick your language (top-right).",
+    "coach.move.mobile": "Drag the joystick (bottom-left) to move.",
+    "coach.move.desktop": "Move with WASD/Arrows, or click the ground.",
+    "coach.attack": "Aha moment: press “4 / ATK” to hit the nearest slime.",
+    "coach.loot": "See drops? Walk near them to auto-pickup. Open Inventory.",
+    "coach.equip": "Equip a weapon to boost ATK immediately.",
+    "coach.done": "Nice! First slime down. Next: kill → loot → equip → stronger.",
   },
 };
 
@@ -464,6 +564,7 @@ function setLang(next) {
     // ignore
   }
   applyI18n();
+  hoverTips?.hide?.();
 }
 
 langZhBtn?.addEventListener('click', () => setLang('zh'));
@@ -490,6 +591,7 @@ let you;
 let recentFx = [];
 let lastMoveSentAt = 0;
 let keyState = { up: false, down: false, left: false, right: false };
+let joyState = { active: false, dx: 0, dy: 0, pointerId: null, cx: 0, cy: 0, knobX: 0, knobY: 0 };
 
 let pendingTarget = null; // { spell }
 let pendingTargetUntilMs = 0;
@@ -526,6 +628,8 @@ function openTab(tabKey) {
   if (tabKey === "hat") {
     hatStartIfNeeded();
   }
+
+  coach?.noteOpenTab?.(tabKey);
 }
 
 for (const b of tabButtons) {
@@ -535,6 +639,579 @@ for (const b of tabButtons) {
 openTab("character");
 
 applyI18n();
+
+// Mobile drawer (bottom sheet) — keep the map large.
+const MOBILE_DRAWER_KEY = "clawtown.mobileDrawer"; // "open" | "collapsed"
+function isMobileLayout() {
+  try {
+    if (!window.matchMedia) return false;
+    if (window.matchMedia("(max-width: 640px)").matches) return true;
+    // Landscape phones/tablets: treat as mobile when height is small.
+    return window.matchMedia("(max-height: 520px) and (max-width: 1024px) and (orientation: landscape)").matches;
+  } catch {
+    return false;
+  }
+}
+
+function setDrawerCollapsed(collapsed, { persist = true } = {}) {
+  if (!panelEl) return;
+  panelEl.classList.toggle("is-collapsed", Boolean(collapsed));
+  try {
+    document.body.classList.toggle("ct-panel-open", !collapsed);
+  } catch {
+    // ignore
+  }
+  if (drawerHandleEl) {
+    drawerHandleEl.setAttribute("aria-expanded", collapsed ? "false" : "true");
+  }
+  if (persist) {
+    try {
+      localStorage.setItem(MOBILE_DRAWER_KEY, collapsed ? "collapsed" : "open");
+    } catch {
+      // ignore
+    }
+  }
+}
+
+function initMobileDrawer() {
+  if (!panelEl) return;
+  if (!isMobileLayout()) return;
+
+  let pref = "collapsed";
+  try {
+    pref = localStorage.getItem(MOBILE_DRAWER_KEY) || "collapsed";
+  } catch {
+    // ignore
+  }
+  setDrawerCollapsed(pref !== "open", { persist: false });
+
+  drawerHandleEl?.addEventListener("click", () => {
+    setDrawerCollapsed(!panelEl.classList.contains("is-collapsed"));
+  });
+  mobileMenuBtn?.addEventListener("click", () => {
+    setDrawerCollapsed(!panelEl.classList.contains("is-collapsed"));
+  });
+
+  // If user taps a tab while collapsed, expand first.
+  for (const b of tabButtons) {
+    b.addEventListener(
+      "click",
+      () => {
+        if (panelEl.classList.contains("is-collapsed")) setDrawerCollapsed(false);
+      },
+      { capture: true }
+    );
+  }
+}
+
+initMobileDrawer();
+
+function setViewportVars() {
+  // iOS Safari in particular benefits from using innerHeight instead of pure 100vh.
+  try {
+    const vh = Math.max(1, window.innerHeight * 0.01);
+    document.documentElement.style.setProperty('--ct-vh', `${vh}px`);
+  } catch {
+    // ignore
+  }
+}
+
+setViewportVars();
+window.addEventListener('orientationchange', () => setTimeout(() => setViewportVars(), 80));
+window.addEventListener('resize', () => setTimeout(() => setViewportVars(), 80));
+
+function nudgeSafariChrome() {
+  // iOS Safari hides the URL/tab chrome only when the page scrolls.
+  // Our UI is mostly fixed, so we keep a tiny scroll shim and nudge once.
+  if (!isMobileLayout()) return;
+  try {
+    if (window.scrollY <= 0) {
+      window.scrollTo(0, 1);
+    }
+  } catch {
+    // ignore
+  }
+}
+
+// Best-effort: on load + on orientation changes.
+setTimeout(() => nudgeSafariChrome(), 60);
+window.addEventListener("orientationchange", () => setTimeout(() => nudgeSafariChrome(), 120));
+window.addEventListener("resize", () => setTimeout(() => nudgeSafariChrome(), 120));
+
+function installNoDoubleTapZoom() {
+  // iOS Safari can interpret rapid taps as a zoom gesture (especially on buttons).
+  // We already set viewport user-scalable=no, but we keep a small guard for older behavior.
+  let lastTouchEnd = 0;
+  document.addEventListener(
+    'touchend',
+    (e) => {
+      if (!isMobileLayout()) return;
+      const now = Date.now();
+      if (now - lastTouchEnd <= 320) {
+        const t = e.target;
+        const hot = t && t.closest && t.closest('.slot, #mobileMenu, #game, .joystick');
+        if (hot) e.preventDefault();
+      }
+      lastTouchEnd = now;
+    },
+    { passive: false, capture: true }
+  );
+}
+
+installNoDoubleTapZoom();
+
+function closeDrawerOnGameplayInteraction(e) {
+  if (!isMobileLayout()) return;
+  if (!panelEl || panelEl.classList.contains('is-collapsed')) return;
+  const t = e && e.target;
+  if (t && t.closest && t.closest('#mobileMenu')) return;
+  // Any gameplay interaction should prioritize the map: close the drawer.
+  setDrawerCollapsed(true);
+}
+
+stageEl?.addEventListener('pointerdown', closeDrawerOnGameplayInteraction, { capture: true });
+
+function initJoystick() {
+  if (!joystickEl || !joystickKnobEl) return;
+
+  const maxR = 36; // px (visual, not world)
+  const dead = 10; // px
+
+  function setKnob(x, y) {
+    joyState.knobX = x;
+    joyState.knobY = y;
+    joystickKnobEl.style.transform = `translate3d(${Math.round(x)}px, ${Math.round(y)}px, 0)`;
+  }
+
+  function setDirFromDelta(dx, dy) {
+    // 8-way-ish: allow diagonal when both axes exceed threshold.
+    const ax = Math.abs(dx);
+    const ay = Math.abs(dy);
+    const ndx = ax < dead ? 0 : dx > 0 ? 1 : -1;
+    const ndy = ay < dead ? 0 : dy > 0 ? 1 : -1;
+    joyState.dx = ndx;
+    joyState.dy = ndy;
+  }
+
+  function resetJoy() {
+    joyState.active = false;
+    joyState.pointerId = null;
+    joyState.dx = 0;
+    joyState.dy = 0;
+    joystickEl.classList.remove("is-active");
+    setKnob(0, 0);
+  }
+
+  function handleMove(clientX, clientY) {
+    const dx0 = clientX - joyState.cx;
+    const dy0 = clientY - joyState.cy;
+    const d = Math.sqrt(dx0 * dx0 + dy0 * dy0) || 1;
+    const scale = d > maxR ? maxR / d : 1;
+    const kx = dx0 * scale;
+    const ky = dy0 * scale;
+    setKnob(kx, ky);
+    setDirFromDelta(dx0, dy0);
+  }
+
+  joystickEl.addEventListener("pointerdown", (e) => {
+    if (!you) return;
+    if (you.mode !== "manual") return;
+    // Avoid scrolling/zooming while dragging the stick.
+    e.preventDefault();
+    e.stopPropagation();
+
+    const rect = joystickEl.getBoundingClientRect();
+    joyState.cx = rect.left + rect.width / 2;
+    joyState.cy = rect.top + rect.height / 2;
+    joyState.pointerId = e.pointerId;
+    joyState.active = true;
+    joystickEl.classList.add("is-active");
+    try {
+      joystickEl.setPointerCapture(e.pointerId);
+    } catch {
+      // ignore
+    }
+    handleMove(e.clientX, e.clientY);
+  });
+
+  joystickEl.addEventListener("pointermove", (e) => {
+    if (!joyState.active) return;
+    if (joyState.pointerId != null && e.pointerId !== joyState.pointerId) return;
+    e.preventDefault();
+    handleMove(e.clientX, e.clientY);
+  });
+
+  function onUp(e) {
+    if (!joyState.active) return;
+    if (joyState.pointerId != null && e.pointerId !== joyState.pointerId) return;
+    e.preventDefault();
+    resetJoy();
+  }
+
+  joystickEl.addEventListener("pointerup", onUp);
+  joystickEl.addEventListener("pointercancel", onUp);
+  joystickEl.addEventListener("lostpointercapture", () => resetJoy());
+
+  // Safety: if focus is lost, stop moving.
+  window.addEventListener("blur", () => resetJoy());
+}
+
+initJoystick();
+
+function initHoverTooltips() {
+  const tooltip = document.createElement('div');
+  tooltip.id = 'ctTooltip';
+  tooltip.className = 'ct-tooltip';
+  tooltip.setAttribute('role', 'tooltip');
+  tooltip.setAttribute('aria-hidden', 'true');
+  document.body.appendChild(tooltip);
+
+  let activeEl = null;
+  let lastX = 0;
+  let lastY = 0;
+
+  function hide() {
+    activeEl = null;
+    tooltip.classList.remove('is-visible');
+    tooltip.setAttribute('aria-hidden', 'true');
+  }
+
+  function position(x, y) {
+    const pad = 12;
+    const offsetX = 14;
+    const offsetY = 14;
+    const rect = tooltip.getBoundingClientRect();
+
+    let left = x + offsetX;
+    let top = y + offsetY;
+    if (left + rect.width + pad > window.innerWidth) left = x - rect.width - offsetX;
+    if (top + rect.height + pad > window.innerHeight) top = y - rect.height - offsetY;
+
+    left = Math.max(pad, Math.min(window.innerWidth - rect.width - pad, left));
+    top = Math.max(pad, Math.min(window.innerHeight - rect.height - pad, top));
+
+    tooltip.style.left = `${Math.round(left)}px`;
+    tooltip.style.top = `${Math.round(top)}px`;
+  }
+
+  function showFor(el) {
+    const k = String(el.getAttribute('data-tip') || '').trim();
+    if (!k) return hide();
+    const text = t(k);
+    if (!text) return hide();
+    tooltip.textContent = text;
+    tooltip.classList.add('is-visible');
+    tooltip.setAttribute('aria-hidden', 'false');
+    // Need a tick for layout so getBoundingClientRect is correct.
+    requestAnimationFrame(() => position(lastX, lastY));
+  }
+
+  document.addEventListener('pointermove', (e) => {
+    lastX = e.clientX;
+    lastY = e.clientY;
+    if (activeEl) position(lastX, lastY);
+  });
+
+  document.addEventListener('pointerover', (e) => {
+    const el = e.target && e.target.closest && e.target.closest('[data-tip]');
+    if (!el) return;
+    if (activeEl === el) return;
+    activeEl = el;
+    showFor(el);
+  });
+
+  document.addEventListener('pointerout', (e) => {
+    if (!activeEl) return;
+    const related = e.relatedTarget && e.relatedTarget.closest && e.relatedTarget.closest('[data-tip]');
+    if (related === activeEl) return;
+    hide();
+  });
+
+  window.addEventListener('blur', hide);
+  window.addEventListener('scroll', hide, { passive: true });
+
+  return { hide };
+}
+
+function createCoach() {
+  // Coach is disabled in CT_TEST by default to avoid flakiness in screenshots/tests.
+  // Tests can explicitly enable it via `/?coach=1`.
+  const coachEnabledInTest = (() => {
+    try {
+      return new URLSearchParams(location.search).get('coach') === '1';
+    } catch {
+      return false;
+    }
+  })();
+  if (CT_TEST && !coachEnabledInTest) {
+    return { onHello: () => {}, onState: () => {}, noteCast: () => {}, noteOpenTab: () => {} };
+  }
+
+  const STORAGE = `clawtown.coach.v2.${playerId}`;
+  const st = (() => {
+    try {
+      const v = JSON.parse(localStorage.getItem(STORAGE) || 'null');
+      if (v && typeof v === 'object') return v;
+    } catch {
+      // ignore
+    }
+    return {
+      disabled: false,
+      step: 'lang', // lang -> move -> attack -> done (then later steps can expand)
+      startX: null,
+      startY: null,
+      startPickups: 0,
+      startKills: 0,
+      startZenny: 0,
+      lastSeenFxAt: 0,
+      celebrated: false,
+      doneShownAt: 0,
+    };
+  })();
+
+  const bubble = document.createElement('div');
+  bubble.className = 'ct-coach-bubble';
+  bubble.style.display = 'none';
+  bubble.setAttribute('role', 'status');
+  bubble.setAttribute('aria-live', 'polite');
+  bubble.title = lang === 'en' ? 'Click to dismiss' : '點一下可關閉';
+  document.body.appendChild(bubble);
+
+  let highlighted = null;
+
+  function save() {
+    try {
+      localStorage.setItem(STORAGE, JSON.stringify(st));
+    } catch {
+      // ignore
+    }
+  }
+
+  function clearHighlight() {
+    if (!highlighted) return;
+    highlighted.classList.remove('ct-coach-highlight');
+    highlighted = null;
+  }
+
+  function show(targetEl, text) {
+    if (!targetEl || !text) return;
+    if (highlighted !== targetEl) {
+      clearHighlight();
+      highlighted = targetEl;
+      highlighted.classList.add('ct-coach-highlight');
+    }
+
+    bubble.textContent = text;
+    bubble.style.display = 'block';
+
+    const r = targetEl.getBoundingClientRect();
+    const pad = 12;
+    const w = 320;
+    const left = Math.max(pad, Math.min(window.innerWidth - w - pad, r.left));
+    const top = Math.min(window.innerHeight - pad - 48, r.bottom + 10);
+    bubble.style.left = `${Math.round(left)}px`;
+    bubble.style.top = `${Math.round(top)}px`;
+  }
+
+  function hide() {
+    bubble.style.display = 'none';
+    clearHighlight();
+  }
+
+  function canShow() {
+    if (st.disabled) return false;
+    if (!onboardingEl) return true;
+    // Only show after the onboarding modal is dismissed.
+    return onboardingEl.getAttribute('aria-hidden') === 'true';
+  }
+
+  function setStep(next) {
+    if (st.step === next) return;
+    st.step = next;
+    save();
+  }
+
+  bubble.addEventListener('click', () => {
+    st.disabled = true;
+    save();
+    hide();
+  });
+
+  function onHello(p) {
+    if (!p) return;
+    if (st.startX == null) st.startX = Number(p.x) || 0;
+    if (st.startY == null) st.startY = Number(p.y) || 0;
+    st.startPickups = Number(p.meta?.pickups || 0) || 0;
+    st.startKills = Number(p.meta?.kills || 0) || 0;
+    st.startZenny = Number(p.zenny || 0) || 0;
+    // If language has been picked before, skip the lang step.
+    try {
+      const hasLangPref = Boolean(String(localStorage.getItem(LANG_KEY) || '').trim());
+      if (hasLangPref && st.step === 'lang') st.step = 'move';
+    } catch {
+      // ignore
+    }
+    save();
+  }
+
+  // Keep API for future expansion (loot/equip steps), but v2 focuses on first Aha.
+  function noteCast() {}
+  function noteOpenTab(_tabKey) {}
+
+  function celebrate() {
+    if (st.celebrated) return;
+    st.celebrated = true;
+    save();
+
+    const colors = ['#ff9c45', '#2b6cb0', '#0f766e', '#b8871b', '#f472b6', '#60a5fa'];
+    function burst(intensity) {
+      const wrap = document.createElement('div');
+      wrap.className = 'ct-confetti';
+      const base = Math.max(22, Math.min(44, Math.floor(window.innerWidth / 20)));
+      const n = Math.max(10, Math.floor(base * Math.max(0.25, Math.min(1.0, intensity))));
+      for (let i = 0; i < n; i++) {
+        const p = document.createElement('div');
+        p.className = 'ct-confetti-piece';
+        const left = Math.random() * 100;
+        const delay = Math.random() * 120;
+        const dur = 820 + Math.random() * 520;
+        const sz = 7 + Math.random() * 8;
+        p.style.left = `${left}%`;
+        p.style.background = colors[i % colors.length];
+        p.style.width = `${Math.round(sz)}px`;
+        p.style.height = `${Math.round(sz * 1.4)}px`;
+        p.style.animationDelay = `${Math.round(delay)}ms`;
+        p.style.animationDuration = `${Math.round(dur)}ms`;
+        wrap.appendChild(p);
+      }
+      document.body.appendChild(wrap);
+      setTimeout(() => {
+        try {
+          wrap.remove();
+        } catch {
+          // ignore
+        }
+      }, 1600);
+    }
+
+    // “撒花三次” but keep it short and not fatiguing: one main burst + 2 tiny echoes.
+    burst(1.0);
+    setTimeout(() => burst(0.45), 220);
+    setTimeout(() => burst(0.28), 440);
+  }
+
+  function showToast(text) {
+    if (!text) return;
+    clearHighlight();
+    bubble.textContent = text;
+    bubble.style.display = 'block';
+    bubble.style.left = '50%';
+    bubble.style.transform = 'translateX(-50%)';
+    const top = isMobileLayout() ? 76 : 86;
+    bubble.style.top = `${top}px`;
+  }
+
+  function onState(p, _state, fx) {
+    if (!canShow()) return hide();
+    if (!p) return hide();
+
+    const px = Number(p.x) || 0;
+    const py = Number(p.y) || 0;
+
+    // Observe "cast happened" via VFX timestamps (fallback if user never clicks slot 1 element directly).
+    let castSeen = false;
+    const now = Date.now();
+    for (const f of Array.isArray(fx) ? fx : []) {
+      if (!f || f.byPlayerId !== playerId) continue;
+      const at = Date.parse(String(f.createdAt || ''));
+      if (!Number.isFinite(at)) continue;
+      if (at <= (st.lastSeenFxAt || 0)) continue;
+      if (['spark', 'blink', 'mark', 'echo', 'guard', 'arrow', 'cleave', 'flurry', 'fireball', 'hail', 'crit'].includes(String(f.type || ''))) {
+        castSeen = true;
+        st.lastSeenFxAt = Math.max(st.lastSeenFxAt || 0, at);
+      }
+    }
+    if (castSeen) save();
+
+    // Step transitions
+    if (st.step === 'lang') {
+      // Progress once user explicitly chose a language (we only set localStorage on click).
+      try {
+        const hasLangPref = Boolean(String(localStorage.getItem(LANG_KEY) || '').trim());
+        if (hasLangPref) setStep('move');
+      } catch {
+        // ignore
+      }
+    }
+
+    if (st.step === 'move') {
+      const dx = px - (Number(st.startX) || 0);
+      const dy = py - (Number(st.startY) || 0);
+      if (Math.sqrt(dx * dx + dy * dy) >= 18) {
+        setStep('attack');
+      }
+    }
+
+    if (st.step === 'attack') {
+      const kills = Number(p.meta?.kills || 0) || 0;
+      if (kills > (Number(st.startKills) || 0)) {
+        celebrate();
+        setStep('done');
+      }
+    }
+
+    // Render current step
+    if (st.step === 'lang') {
+      show(langToggleEl || statusEl || canvas, t('coach.lang'));
+      return;
+    }
+    if (st.step === 'move') {
+      const key = isMobileLayout() ? 'coach.move.mobile' : 'coach.move.desktop';
+      show((isMobileLayout() ? (joystickEl || canvas) : canvas), t(key));
+      return;
+    }
+    if (st.step === 'attack') {
+      show(slot4 || slot1 || canvas, t('coach.attack'));
+      return;
+    }
+
+    if (st.step === 'done') {
+      // Show ONCE (no flashing highlight). Then stop the coach.
+      if (!st.doneShownAt) {
+        st.doneShownAt = Date.now();
+        save();
+        showToast(t('coach.done'));
+        setTimeout(() => {
+          if (!st.disabled) {
+            hide();
+            setStep('end');
+          }
+        }, 2600);
+      } else {
+        // Keep it visible while the timeout is pending.
+        showToast(t('coach.done'));
+      }
+      return;
+    }
+
+    if (st.step === 'end') {
+      hide();
+      return;
+    }
+
+    hide();
+  }
+
+  return { onHello, onState, noteCast, noteOpenTab };
+}
+
+hoverTips = initHoverTooltips();
+coach = createCoach();
+
+// Test-only hooks (Playwright runs with CT_TEST=1).
+if (CT_TEST) {
+  window.__ctBuildConnectBlock = (opts) => buildConnectBlock(opts || {});
+}
 
 function persist() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify({ playerId, name: myName }));
@@ -560,8 +1237,217 @@ async function ensurePlayer() {
   if (data?.ok) {
     you = data.player;
     renderHeader();
+    refreshAvatarPreview();
   }
 }
+
+function currentAvatarUrlForPlayer(p) {
+  if (!p) return "/assets/avatar_default.png";
+  const v = Number(p.avatarVersion || 0) || 0;
+  if (v > 0) return `/api/avatars/${encodeURIComponent(p.id)}.png?v=${encodeURIComponent(String(v))}`;
+  return "/assets/avatar_default.png";
+}
+
+async function refreshAvatarPreview() {
+  if (!avatarPreviewEl) return;
+  try {
+    avatarPreviewEl.src = currentAvatarUrlForPlayer(you || { id: playerId, avatarVersion: 0 });
+  } catch {
+    // ignore
+  }
+}
+
+async function fileToSquarePngDataUrl(file, size) {
+  const s = Math.max(32, Math.min(192, Math.floor(Number(size) || 64)));
+  const blob = file instanceof Blob ? file : null;
+  if (!blob) throw new Error("invalid file");
+
+  const url = URL.createObjectURL(blob);
+  try {
+    const img = await new Promise((resolve, reject) => {
+      const im = new Image();
+      im.onload = () => resolve(im);
+      im.onerror = () => reject(new Error("image decode failed"));
+      im.src = url;
+    });
+
+    const w = Math.max(1, img.naturalWidth || img.width || 1);
+    const h = Math.max(1, img.naturalHeight || img.height || 1);
+    const m = Math.min(w, h);
+    const sx = Math.floor((w - m) / 2);
+    const sy = Math.floor((h - m) / 2);
+
+    const c = document.createElement("canvas");
+    c.width = s;
+    c.height = s;
+    const g = c.getContext("2d", { alpha: true });
+    g.clearRect(0, 0, s, s);
+    g.imageSmoothingEnabled = true;
+    g.imageSmoothingQuality = "high";
+    g.drawImage(img, sx, sy, m, m, 0, 0, s, s);
+
+    function rgbDist(a, b) {
+      return Math.abs(a.r - b.r) + Math.abs(a.g - b.g) + Math.abs(a.b - b.b);
+    }
+
+    function cornerColors(data) {
+      const get = (x, y) => {
+        const i = (s * y + x) * 4;
+        return { r: data[i], g: data[i + 1], b: data[i + 2], a: data[i + 3] };
+      };
+      return [get(0, 0), get(s - 1, 0), get(0, s - 1), get(s - 1, s - 1)];
+    }
+
+    function tryRemoveBgEdges() {
+      // If the image already has transparency near the edges, don't touch it.
+      const imgData = g.getImageData(0, 0, s, s);
+      const data = imgData.data;
+      const corners = cornerColors(data);
+      if (corners.some((c) => c.a < 10)) return false;
+
+      // Cluster corner colors into 1–2 backgrounds (solid or checkerboard-style).
+      const clusters = [];
+      const tol = 18; // RGB manhattan
+      for (const c0 of corners) {
+        const c = { r: c0.r, g: c0.g, b: c0.b };
+        let found = false;
+        for (const k of clusters) {
+          if (rgbDist(k, c) <= tol) {
+            found = true;
+            break;
+          }
+        }
+        if (!found) clusters.push(c);
+      }
+      if (clusters.length === 0 || clusters.length > 2) return false;
+
+      const matchTol = clusters.length === 2 ? 22 : 18;
+      const w2 = s;
+      const h2 = s;
+      const visited = new Uint8Array(w2 * h2);
+      const qx = new Int32Array(w2 * h2);
+      const qy = new Int32Array(w2 * h2);
+      let qh = 0;
+      let qt = 0;
+
+      function matchesBg(r, g2, b) {
+        for (const k of clusters) {
+          const d = Math.abs(r - k.r) + Math.abs(g2 - k.g) + Math.abs(b - k.b);
+          if (d <= matchTol) return true;
+        }
+        return false;
+      }
+
+      function push(x, y) {
+        const idx = y * w2 + x;
+        if (visited[idx]) return;
+        visited[idx] = 1;
+        qx[qt] = x;
+        qy[qt] = y;
+        qt++;
+      }
+
+      // Seed from all edges.
+      for (let x = 0; x < w2; x++) {
+        push(x, 0);
+        push(x, h2 - 1);
+      }
+      for (let y = 0; y < h2; y++) {
+        push(0, y);
+        push(w2 - 1, y);
+      }
+
+      let removed = 0;
+      while (qh < qt) {
+        const x = qx[qh];
+        const y = qy[qh];
+        qh++;
+        const i = (y * w2 + x) * 4;
+        const r = data[i];
+        const g3 = data[i + 1];
+        const b = data[i + 2];
+        const a = data[i + 3];
+        if (a > 0 && matchesBg(r, g3, b)) {
+          data[i + 3] = 0;
+          removed++;
+          if (x > 0) push(x - 1, y);
+          if (x < w2 - 1) push(x + 1, y);
+          if (y > 0) push(x, y - 1);
+          if (y < h2 - 1) push(x, y + 1);
+        }
+      }
+
+      if (removed <= 24) return false; // likely not a background
+      g.putImageData(imgData, 0, 0);
+      return true;
+    }
+
+    const wantRemove = Boolean(avatarRemoveBgEl && avatarRemoveBgEl.checked);
+    if (wantRemove) tryRemoveBgEdges();
+    return c.toDataURL("image/png");
+  } finally {
+    try {
+      URL.revokeObjectURL(url);
+    } catch {
+      // ignore
+    }
+  }
+}
+
+async function uploadAvatarDataUrl(pngDataUrl) {
+  const res = await fetch("/api/players/avatar", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ playerId, pngDataUrl }),
+  });
+  const data = await res.json().catch(() => null);
+  if (!data?.ok) throw new Error(data?.error || "upload failed");
+  if (you) you.avatarVersion = Number(data.avatarVersion || you.avatarVersion || 0) || 0;
+  refreshAvatarPreview();
+}
+
+async function resetAvatar() {
+  const res = await fetch("/api/players/avatar", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ playerId, reset: true }),
+  });
+  const data = await res.json().catch(() => null);
+  if (!data?.ok) throw new Error(data?.error || "reset failed");
+  if (you) you.avatarVersion = 0;
+  refreshAvatarPreview();
+}
+
+avatarUploadBtn?.addEventListener("click", () => avatarFileEl?.click());
+avatarFileEl?.addEventListener("change", async () => {
+  try {
+    const f = avatarFileEl.files && avatarFileEl.files[0];
+    if (!f) return;
+    // Optimistic preview: show cropped version immediately.
+    const dataUrl = await fileToSquarePngDataUrl(f, 64);
+    if (avatarPreviewEl) avatarPreviewEl.src = dataUrl;
+    await uploadAvatarDataUrl(dataUrl);
+    statusEl.textContent = lang === "en" ? "Avatar updated." : "頭像已更新。";
+  } catch {
+    statusEl.textContent = lang === "en" ? "Avatar upload failed." : "頭像上傳失敗。";
+    refreshAvatarPreview();
+  } finally {
+    try {
+      avatarFileEl.value = "";
+    } catch {
+      // ignore
+    }
+  }
+});
+
+avatarResetBtn?.addEventListener("click", async () => {
+  try {
+    await resetAvatar();
+    statusEl.textContent = lang === "en" ? "Avatar reset." : "頭像已恢復預設。";
+  } catch {
+    statusEl.textContent = lang === "en" ? "Reset failed." : "恢復失敗。";
+  }
+});
 
 function setMode(mode) {
   if (!ws || ws.readyState !== WebSocket.OPEN) return;
@@ -615,6 +1501,7 @@ function jobName(job) {
 
 function castSpell(spell, x, y) {
   if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  coach?.noteCast?.();
   const msg = { type: "cast", spell };
   if (Number.isFinite(x) && Number.isFinite(y)) {
     msg.x = x;
@@ -634,6 +1521,7 @@ saveIntentBtn.addEventListener("click", () => {
 
 castBtn.addEventListener("click", () => {
   if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  coach?.noteCast?.();
   ws.send(JSON.stringify({ type: "cast" }));
 });
 
@@ -672,6 +1560,7 @@ resetSkill4Btn?.addEventListener("click", () => {
 slot1?.addEventListener("click", () => {
   pulse(slot1);
   if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  coach?.noteCast?.();
   ws.send(JSON.stringify({ type: "cast" }));
 });
 
@@ -1035,7 +1924,32 @@ makeJoinCodeBtn.addEventListener("click", async () => {
   if (hudBotEl) hudBotEl.textContent = "Bot：等待加入";
   if (joinTokenEl) joinTokenEl.value = data.joinToken || "";
   if (sandboxJoinTokenEl) sandboxJoinTokenEl.value = data.sandboxJoinToken || "";
-  if (botPromptEl) botPromptEl.value = buildBotPrompt(joinTokenEl?.value || "");
+  if (botPromptEl) {
+    botPromptEl.value = buildConnectBlock({
+      joinToken: joinTokenEl?.value || "",
+      sandboxJoinToken: sandboxJoinTokenEl?.value || "",
+    });
+  }
+
+  // Hide sandbox token section when not applicable (production usually doesn't need it).
+  try {
+    const sandboxRow = document.getElementById('sandboxJoinTokenRow');
+    if (sandboxRow) sandboxRow.hidden = !String(data.sandboxJoinToken || '').trim();
+  } catch {
+    // ignore
+  }
+
+  // Only show Docker-specific copy/help when we are in local-dev mode.
+  try {
+    const parsed = parseJoinToken(data.joinToken || "");
+    const isLocal = parsed && (parsed.baseUrl.includes("localhost") || parsed.baseUrl.includes("127.0.0.1") || parsed.baseUrl.includes("0.0.0.0"));
+    // The docker gap helper is only meaningful for localhost dev.
+    const dockerHelp = document.querySelector('[data-i18n="link.dockerGap"]');
+    if (dockerHelp) dockerHelp.toggleAttribute('hidden', !isLocal);
+  } catch {
+    // ignore
+  }
+
   try {
     await navigator.clipboard.writeText(data.joinCode);
   } catch {
@@ -1064,47 +1978,29 @@ function parseJoinToken(joinToken) {
   return { version, baseUrl, joinCode, raw };
 }
 
-function buildBotPrompt(joinToken) {
-  const parsed = parseJoinToken(joinToken);
-  if (!parsed) return "（請先按『取得 Join Token』）";
+function buildConnectBlock({ joinToken, sandboxJoinToken }) {
+  const a = parseJoinToken(joinToken);
+  const b = parseJoinToken(sandboxJoinToken);
+  if (!a && !b) return lang === 'en' ? '(click Get Join Token first)' : '（請先按『取得 Join Token』）';
 
-  // CT1 is a version marker for the token format.
-  const { version, baseUrl, joinCode, raw } = parsed;
+  const isLocal =
+    Boolean(a && (a.baseUrl.includes('localhost') || a.baseUrl.includes('127.0.0.1') || a.baseUrl.includes('0.0.0.0'))) ||
+    Boolean(b && (b.baseUrl.includes('localhost') || b.baseUrl.includes('127.0.0.1') || b.baseUrl.includes('0.0.0.0')));
 
-  return [
-    "你是一個 Clawtown 遊戲代理人（CloudBot）。",
-    "你的任務：把自己綁定到我的角色，切到 H-Mode，開始在小鎮裡移動並打史萊姆。",
-    "只允許做遊戲相關行為（link/mode/goal/world/chat/intent/cast）。",
-    "",
-    "[CLAWTOWN_JOIN_V1]",
-    `join_token_version: ${version}  # CT1 是 join token 格式版本標記`,
-    `base_url: ${baseUrl}`,
-    `join_code: ${joinCode}`,
-    "",
-    "步驟：",
-    "1) Link（取得 botToken）",
-    `   curl -s -X POST "${baseUrl}/api/bot/link" -H 'Content-Type: application/json' -d '{"joinToken":"${raw}"}'`,
-    "   解析回傳 JSON，記住 botToken。",
-    "2) 切換到 H-Mode",
-    `   curl -s -X POST "${baseUrl}/api/bot/mode" -H "Authorization: Bearer <botToken>" -H 'Content-Type: application/json' -d '{"mode":"agent"}'`,
-    "3) 開始行為 loop（每 1~2 秒一次）：",
-    `   - 讀世界：curl -s "${baseUrl}/api/bot/world" -H "Authorization: Bearer <botToken>"`,
-    "   - 如果附近有活著的史萊姆：呼叫 cast（攻擊）",
-    `     curl -s -X POST "${baseUrl}/api/bot/cast" -H "Authorization: Bearer <botToken>" -H 'Content-Type: application/json' -d '{"spell":"signature"}'`,
-    "   - 否則：設定一個目標點在廣場附近走動",
-    `     curl -s -X POST "${baseUrl}/api/bot/goal" -H "Authorization: Bearer <botToken>" -H 'Content-Type: application/json' -d '{"x":520,"y":300}'`,
-    `   - 公開意圖（可選）：curl -s -X POST "${baseUrl}/api/bot/intent" ...`,
-    "",
-    "完成後請回覆我：『已連線，開始行動』",
-    "[/CLAWTOWN_JOIN_V1]",
-  ].join("\n");
+  const primary = a || b;
+  const lines = [];
+  // Always output English so it works reliably for most third-party agents.
+  lines.push('Read https://clawtown.io/skill.md and follow the instructions to connect to Clawtown.');
+  lines.push(`Join token: ${primary.raw}`);
+  lines.push('After linking: switch to H-Mode (mode="agent") and start acting (world → cast/goal loop).');
+  if (isLocal && a && b && b.raw !== a.raw) lines.push(`If your bot runs in Docker/sandbox: use join token: ${b.raw}`);
+  return lines.join('\n').trim();
 }
 
 copyJoinTokenBtn?.addEventListener("click", () => copyText(joinTokenEl?.value));
 copySandboxJoinTokenBtn?.addEventListener("click", () => copyText(sandboxJoinTokenEl?.value));
 
 copyBotPromptBtn?.addEventListener("click", () => copyText(botPromptEl?.value));
-copyBotPromptDockerBtn?.addEventListener("click", () => copyText(buildBotPrompt(sandboxJoinTokenEl?.value || "")));
 
 boardSend.addEventListener("click", () => {
   const content = String(boardInput.value || "").trim();
@@ -1198,7 +2094,7 @@ canvas.addEventListener("click", (e) => {
     }
     pendingTarget = null;
     pendingTargetUntilMs = 0;
-    statusEl.textContent = "已連線";
+    statusEl.textContent = t('status.connected');
     return;
   }
 
@@ -1235,8 +2131,12 @@ function stepInput() {
   if (t - lastMoveSentAt < 80) return;
   lastMoveSentAt = t;
 
-  const dx = (keyState.right ? 1 : 0) - (keyState.left ? 1 : 0);
-  const dy = (keyState.down ? 1 : 0) - (keyState.up ? 1 : 0);
+  const kdx = (keyState.right ? 1 : 0) - (keyState.left ? 1 : 0);
+  const kdy = (keyState.down ? 1 : 0) - (keyState.up ? 1 : 0);
+
+  // Joystick overrides keyboard input on mobile.
+  const dx = joyState.active ? joyState.dx : kdx;
+  const dy = joyState.active ? joyState.dy : kdy;
   if (dx === 0 && dy === 0) return;
   ws.send(JSON.stringify({ type: "move", dx, dy }));
 }
@@ -1256,6 +2156,23 @@ function renderHeader() {
   if (hudLevelEl) hudLevelEl.textContent = `${t('hud.level')}${you.level}`;
   if (hudModeEl) hudModeEl.textContent = you.mode === 'agent' ? t('hud.modeAgent') : t('hud.modeManual');
   if (hudBotEl) hudBotEl.textContent = you.linkedBot ? t('hud.botLinked') : t('hud.botUnlinked');
+
+  // Mobile: show joystick only in manual mode.
+  try {
+    const showJoy = isMobileLayout() && you.mode === "manual";
+    if (stageEl) stageEl.classList.toggle("has-joystick", showJoy);
+    if (joystickEl) joystickEl.hidden = !showJoy;
+    if (!showJoy) {
+      joyState.active = false;
+      joyState.dx = 0;
+      joyState.dy = 0;
+      joyState.pointerId = null;
+      if (joystickEl) joystickEl.classList.remove("is-active");
+      if (joystickKnobEl) joystickKnobEl.style.transform = "translate3d(0,0,0)";
+    }
+  } catch {
+    // ignore
+  }
 
   if (slot1Name) {
     const n = (you.signatureSpell && you.signatureSpell.name) || t('action.slot1');
@@ -1324,6 +2241,7 @@ function renderHeader() {
   renderInventory();
 
   renderParty();
+  refreshAvatarPreview();
 }
 
 function renderParty() {
@@ -1672,8 +2590,20 @@ function draw() {
     ctx.ellipse(p.x, p.y + 10, 12, 6, 0, 0, Math.PI * 2);
     ctx.fill();
 
-    // avatar
-    if (avatarSpriteReady) {
+    // avatar (custom uploads or default sprite)
+    const avV = Number(p.avatarVersion || 0) || 0;
+    const avUrl = avV > 0 ? `/api/avatars/${encodeURIComponent(p.id)}.png?v=${encodeURIComponent(String(avV))}` : "";
+    const customImg = avUrl ? getCustomAvatarImg(avUrl) : null;
+    let hasAvatar = false;
+
+    if (customImg) {
+      const dw = 74;
+      const dh = 74;
+      const dx = p.x - dw / 2;
+      const dy = p.y - dh + 22;
+      ctx.drawImage(customImg, dx, dy, dw, dh);
+      hasAvatar = true;
+    } else if (avatarSpriteReady) {
       // Sprite sheet is a 5x8 grid (approx). Use a clean front-facing poring frame.
       const cellW = 134;
       const cellH = 112;
@@ -1687,15 +2617,7 @@ function draw() {
       const dx = p.x - dw / 2;
       const dy = p.y - dh + 22;
       ctx.drawImage(avatarSprite, sx, sy, sw, sh, dx, dy, dw, dh);
-
-      // mode ring
-      if (p.mode === "agent" || isYou) {
-        ctx.strokeStyle = p.mode === "agent" ? "rgba(184,135,27,0.78)" : "rgba(43,108,176,0.72)";
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.arc(p.x, p.y + 10, 16, 0, Math.PI * 2);
-        ctx.stroke();
-      }
+      hasAvatar = true;
     } else {
       const base = isYou ? "rgba(43,108,176,0.92)" : "rgba(15,118,110,0.86)";
       const agentGlow = p.mode === "agent" ? "rgba(184,135,27,0.92)" : base;
@@ -1712,11 +2634,20 @@ function draw() {
       ctx.fill();
     }
 
+    // mode ring (shown when agent, or highlight yourself)
+    if (hasAvatar && (p.mode === "agent" || isYou)) {
+      ctx.strokeStyle = p.mode === "agent" ? "rgba(184,135,27,0.78)" : "rgba(43,108,176,0.72)";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y + 10, 16, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+
     // name
     ctx.font = "12px JetBrains Mono";
     ctx.fillStyle = "rgba(19,27,42,0.92)";
     ctx.textAlign = "center";
-    ctx.fillText(p.name, p.x, avatarSpriteReady ? p.y - 58 : p.y - 16);
+    ctx.fillText(p.name, p.x, hasAvatar ? p.y - 58 : p.y - 16);
 
     // intent (short)
     if (p.intent) {
@@ -1727,7 +2658,7 @@ function draw() {
 
     const speech = localLastSpeech.get(p.id);
     if (speech && Date.now() - speech.atMs < 4500) {
-      drawSpeechBubble(p.x, avatarSpriteReady ? p.y - 86 : p.y - 44, speech.text);
+      drawSpeechBubble(p.x, hasAvatar ? p.y - 86 : p.y - 44, speech.text);
     }
     ctx.restore();
   }
@@ -2095,11 +3026,14 @@ function connect() {
       recentFx = (msg.recentFx || []).concat(recentFx);
       window.__ct.recentFx = recentFx;
 
+      coach?.onHello?.(you);
+
       renderHeader();
       renderFeed(boardEl, state.board || [], "board");
       renderFeed(chatEl, state.chats || [], "chat");
       renderBotThoughts();
       refreshHat();
+      coach?.onState?.(you, state, recentFx);
       return;
     }
     if (msg.type === "state") {
@@ -2126,12 +3060,14 @@ function connect() {
       renderFeed(chatEl, state.chats || [], "chat");
       renderBotThoughts();
       draw();
+      coach?.onState?.(you, state, recentFx);
       return;
     }
     if (msg.type === "fx") {
       recentFx.unshift(msg.fx);
       window.__ct = window.__ct || {};
       window.__ct.recentFx = recentFx;
+      coach?.onState?.(you, state, recentFx);
       return;
     }
 
@@ -2148,18 +3084,6 @@ function connect() {
   });
 }
 
-function loop() {
-  stepInput();
-  draw();
-  requestAnimationFrame(loop);
-}
-
-ensurePlayer().then(() => {
-  persist();
-  connect();
-  loop();
-});
-
 function openOnboardingIfNeeded() {
   if (!onboardingEl) return;
   const key = "clawtown.onboarding.v1";
@@ -2194,6 +3118,7 @@ function openOnboardingIfNeeded() {
 }
 
 openOnboardingIfNeeded();
+
 function loop() {
   stepInput();
   draw();
@@ -2205,38 +3130,3 @@ ensurePlayer().then(() => {
   connect();
   loop();
 });
-
-function openOnboardingIfNeeded() {
-  if (!onboardingEl) return;
-  const key = "clawtown.onboarding.v1";
-  if (localStorage.getItem(key)) return;
-
-  onboardingEl.classList.add("is-open");
-  onboardingEl.setAttribute("aria-hidden", "false");
-
-  function close() {
-    onboardingEl.classList.remove("is-open");
-    onboardingEl.setAttribute("aria-hidden", "true");
-    localStorage.setItem(key, "1");
-  }
-
-  onboardingStart?.addEventListener("click", () => close(), { once: true });
-  onboardingGoHat?.addEventListener(
-    "click",
-    () => {
-      close();
-      openTab("hat");
-    },
-    { once: true },
-  );
-
-  onboardingEl.addEventListener(
-    "click",
-    (e) => {
-      if (e.target === onboardingEl) close();
-    },
-    { once: true },
-  );
-}
-
-openOnboardingIfNeeded();

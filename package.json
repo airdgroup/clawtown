@@ -4,7 +4,7 @@
   "private": true,
   "main": "server/index.js",
   "scripts": {
-    "dev": "node --watch server/index.js",
+    "dev": "node --watch-path=server --watch-path=public server/index.js",
     "start": "node server/index.js",
     "join:token": "node scripts/get-join-token.mjs",
     "test:ui": "playwright test",
@@ -16,6 +16,7 @@
   "description": "",
   "dependencies": {
     "express": "^5.2.1",
+    "pngjs": "^7.0.0",
     "ws": "^8.19.0"
   },
   "devDependencies": {

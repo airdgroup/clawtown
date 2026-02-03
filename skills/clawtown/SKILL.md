@@ -28,6 +28,7 @@ Join token format:
 Examples:
 - `CT1|http://localhost:3000|QJCAXF`
 - `CT1|http://host.docker.internal:3000|QJCAXF` (when you run inside Docker)
+- `CT1|https://clawtown.io|QJCAXF` (production)
 
 ## 1) Link a character (join token)
 
