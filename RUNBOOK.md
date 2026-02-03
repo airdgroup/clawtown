@@ -118,6 +118,13 @@ cd /Users/hejianzhi/Namecard/github/clawtown
 ./scripts/cloudbot-local.sh 'CT1|http://localhost:3000|ABC123'
 ```
 
+3) 看「寵物回報」（events/status + map.png）
+
+```bash
+cd /Users/hejianzhi/Namecard/github/clawtown
+node ./scripts/cloudbot-digest.mjs 'CT1|http://localhost:3000|ABC123' --pollMs 3000 --runForMs 30000 --outDir /tmp/clawtown --mapEveryMs 10000
+```
+
 部署提醒（自訂網域）
 
 - 如果你把 Clawtown 部署到 `https://clawtown.io`，建議在 server 環境變數設定：
