@@ -8,15 +8,18 @@ async function main() {
 
   await page.goto(baseUrl, { waitUntil: 'domcontentloaded' });
 
-  const onboarding = page.locator('#onboarding');
-  if (await onboarding.isVisible().catch(() => false)) {
-    await page.locator('#onboardingStart').click();
+  // Close onboarding if it is present. On prod it can intercept pointer events.
+  const onboardingStart = page.locator('#onboardingStart');
+  if ((await onboardingStart.count().catch(() => 0)) > 0) {
+    await onboardingStart.click({ timeout: 5000 }).catch(() => {});
+    await page.locator('#onboarding').waitFor({ state: 'hidden', timeout: 5000 }).catch(() => {});
   }
 
   await page.locator('.ui-tab[data-tab="link"]').click();
   await page.locator('#makeJoinCode').click();
 
-  await page.locator('#joinToken').waitFor();
+  // joinToken lives inside a collapsed <details> in the UI; it's OK if it is not visible.
+  await page.locator('#joinToken').waitFor({ state: 'attached' });
   await page.waitForFunction(() => {
     const el = document.querySelector('#joinToken');
     return el && el.value && el.value.includes('|');
