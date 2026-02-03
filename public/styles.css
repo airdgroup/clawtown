@@ -428,6 +428,78 @@ main {
   color: rgba(43, 108, 176, 0.95);
 }
 
+.ui-tab.is-advanced {
+  display: none;
+}
+
+.ui-more {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.ui-more-btn {
+  border: 1px solid rgba(19, 27, 42, 0.14);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.88), rgba(255, 255, 255, 0.62));
+  color: rgba(19, 27, 42, 0.78);
+  border-radius: 999px;
+  padding: 8px 12px;
+  font-weight: 900;
+  letter-spacing: 0.2px;
+  cursor: pointer;
+  font-size: 12px;
+  min-width: 44px;
+}
+
+.ui-more-btn:hover {
+  background: rgba(255, 255, 255, 0.85);
+}
+
+.ui-more-btn.is-active {
+  border-color: rgba(43, 108, 176, 0.35);
+  background: rgba(43, 108, 176, 0.12);
+  color: rgba(43, 108, 176, 0.95);
+}
+
+.ui-more-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  min-width: 160px;
+  border-radius: 14px;
+  border: 1px solid rgba(19, 27, 42, 0.16);
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 18px 42px rgba(9, 19, 36, 0.16);
+  padding: 8px;
+  z-index: 120;
+  backdrop-filter: blur(10px);
+}
+
+.ui-more-item {
+  width: 100%;
+  text-align: left;
+  border: 1px solid rgba(19, 27, 42, 0.12);
+  background: rgba(255, 255, 255, 0.7);
+  color: rgba(19, 27, 42, 0.82);
+  border-radius: 12px;
+  padding: 10px 12px;
+  font-weight: 900;
+  letter-spacing: 0.2px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.ui-more-item + .ui-more-item {
+  margin-top: 8px;
+}
+
+.ui-more-item:hover {
+  background: rgba(43, 108, 176, 0.12);
+  border-color: rgba(43, 108, 176, 0.28);
+  color: rgba(43, 108, 176, 0.95);
+}
+
 .ui-window-body {
   padding: 12px;
   background: var(--panel);
@@ -1010,6 +1082,12 @@ textarea {
 
 .btn-ghost:hover {
   background: rgba(255, 255, 255, 0.76);
+}
+
+.btn.is-active {
+  border-color: rgba(43, 108, 176, 0.35);
+  background: rgba(43, 108, 176, 0.12);
+  color: rgba(43, 108, 176, 0.95);
 }
 
 .seg {

@@ -22,6 +22,11 @@ async function resetWorld(page: any) {
   expect(data?.ok).toBeTruthy();
 }
 
+async function openMoreTab(page: any, tab: 'board' | 'party' | 'hat') {
+  await page.locator('#moreBtn').click();
+  await page.locator(`#moreMenu .ui-more-item[data-tab="${tab}"]`).click();
+}
+
 test('UI baseline looks polished', async ({ page }) => {
   await resetWorld(page);
   await page.goto('/');
@@ -282,7 +287,7 @@ test('Sorting Hat produces a result', async ({ page }) => {
   await waitForFonts(page);
   await closeOnboarding(page);
 
-  await page.locator('.ui-tab[data-tab="hat"]').click();
+  await openMoreTab(page, 'hat');
   await expect(page.locator('#hatOptions')).toBeVisible();
 
   await page.locator('#hatOptions .hat-choice', { hasText: '戰鬥' }).click();
@@ -352,6 +357,35 @@ test('Join token is reusable (re-link returns botToken again)', async ({ page })
   expect(linkData2.ok).toBeTruthy();
   expect(linkData2.botToken).toBeTruthy();
   expect(linkData2.botToken).toBe(linkData1.botToken);
+});
+
+test('Join tokens survive re-issuing (generating a new join token does not invalidate old tokens)', async ({ page }) => {
+  await resetWorld(page);
+  await page.goto('/');
+  await waitForFonts(page);
+  await closeOnboarding(page);
+
+  await page.locator('.ui-tab[data-tab="link"]').click();
+
+  await page.locator('#makeJoinCode').click();
+  await expect(page.locator('#joinToken')).toHaveValue(/^CT1\|http:\/\//);
+  const token1 = await page.locator('#joinToken').inputValue();
+
+  // Issue again (users often click this multiple times when onboarding a bot).
+  await page.locator('#makeJoinCode').click();
+  await expect(page.locator('#joinToken')).toHaveValue(/^CT1\|http:\/\//);
+  const token2 = await page.locator('#joinToken').inputValue();
+
+  // Both tokens should link successfully (old one should not be invalidated).
+  const link1 = await page.request.post('/api/bot/link', { data: { joinToken: token1 } });
+  const linkData1 = await link1.json();
+  expect(linkData1.ok).toBeTruthy();
+  expect(linkData1.botToken).toBeTruthy();
+
+  const link2 = await page.request.post('/api/bot/link', { data: { joinToken: token2 } });
+  const linkData2 = await link2.json();
+  expect(linkData2.ok).toBeTruthy();
+  expect(linkData2.botToken).toBeTruthy();
 });
 
 test('Link Bot: connect command is generated with join token', async ({ page }) => {
@@ -476,9 +510,11 @@ test('Avatar: background removal makes corner pixels transparent (beta)', async 
   await waitForFonts(page);
   await closeOnboarding(page);
 
-  // Ensure the checkbox exists and is enabled.
-  await expect(page.locator('#avatarRemoveBg')).toBeVisible();
-  await page.locator('#avatarRemoveBg').check();
+  // Ensure the toggle exists and is enabled.
+  const bg = page.locator('#avatarBgToggle');
+  await expect(bg).toBeVisible();
+  const pressed = await bg.getAttribute('aria-pressed');
+  if (pressed !== 'true') await bg.click();
 
   // Create a PNG with a solid background and a small foreground square.
   const tmp = path.join(os.tmpdir(), `ct-avatar-bg-${Date.now()}-${Math.random().toString(16).slice(2)}.png`);
@@ -1215,14 +1251,14 @@ test('Party: create/join and share XP on elite kill', async ({ browser }) => {
   const tokB = (await (await b.request.post('/api/bot/link', { data: { joinCode: codeB } })).json()).botToken;
 
   // Create party on A, generate join code, join with B via UI.
-  await a.locator('.ui-tab[data-tab="party"]').click();
+  await openMoreTab(a, 'party');
   await a.locator('#partyCreate').click();
   await a.locator('#partyMakeCode').click();
   await a.waitForTimeout(250);
   const pcode = await a.locator('#partyCode').inputValue();
   expect(pcode).toMatch(/[A-Z2-9]{6}/);
 
-  await b.locator('.ui-tab[data-tab="party"]').click();
+  await openMoreTab(b, 'party');
   await b.locator('#partyJoinCode').fill(pcode);
   await b.locator('#partyJoin').click();
 
@@ -1273,7 +1309,7 @@ test('Party: invalid invite code is rejected', async ({ browser }) => {
   await waitForFonts(p);
   await closeOnboarding(p);
 
-  await p.locator('.ui-tab[data-tab="party"]').click();
+  await openMoreTab(p, 'party');
   await p.locator('#partyJoinCode').fill('AAAAAA');
   await p.locator('#partyJoin').click();
 

@@ -60,7 +60,7 @@ const avatarPreviewEl = document.getElementById("avatarPreview");
 const avatarFileEl = document.getElementById("avatarFile");
 const avatarUploadBtn = document.getElementById("avatarUpload");
 const avatarResetBtn = document.getElementById("avatarReset");
-const avatarRemoveBgEl = document.getElementById("avatarRemoveBg");
+const avatarBgToggleBtn = document.getElementById("avatarBgToggle");
 const jobEl = document.getElementById("job");
 const levelEl = document.getElementById("level");
 const modeManualBtn = document.getElementById("modeManual");
@@ -162,6 +162,10 @@ const onboardingGoHat = document.getElementById("onboardingGoHat");
 
 const langToggleEl = document.getElementById("langToggle");
 
+const moreBtnEl = document.getElementById("moreBtn");
+const moreMenuEl = document.getElementById("moreMenu");
+const moreMenuItems = Array.from(document.querySelectorAll(".ui-more-item"));
+
 const tabButtons = Array.from(document.querySelectorAll(".ui-tab"));
 const tabPanels = Array.from(document.querySelectorAll(".tab"));
 
@@ -172,6 +176,15 @@ let lang = (() => {
     return v === "en" ? "en" : "zh";
   } catch {
     return "zh";
+  }
+})();
+
+const AVATAR_BG_KEY = "clawtown.avatarBgFix"; // "on" | "off"
+let avatarBgFixEnabled = (() => {
+  try {
+    return (localStorage.getItem(AVATAR_BG_KEY) || "on") !== "off";
+  } catch {
+    return true;
   }
 })();
 
@@ -195,11 +208,12 @@ const I18N = {
     "tabs.chat": "聊天",
     "tabs.bot": "Bot 想法",
     "tabs.link": "連結 Bot",
+    "tabs.more": "更多",
     "character.title": "我的角色",
     "character.avatarLabel": "頭像",
     "character.avatarUpload": "上傳頭像",
     "character.avatarReset": "恢復預設",
-    "character.avatarRemoveBg": "自動去背（Beta）",
+    "character.avatarBgToggle": "背景修正",
     "character.avatarHelp": "會自動裁切成方形並縮放；地圖上大家大小一致。",
     "character.nameLabel": "暱稱",
     "character.namePlaceholder": "輸入暱稱",
@@ -357,11 +371,12 @@ const I18N = {
     "tabs.chat": "Chat",
     "tabs.bot": "Bot Thoughts",
     "tabs.link": "Link Bot",
+    "tabs.more": "More",
     "character.title": "My Character",
     "character.avatarLabel": "Avatar",
     "character.avatarUpload": "Upload",
     "character.avatarReset": "Reset",
-    "character.avatarRemoveBg": "Auto remove background (Beta)",
+    "character.avatarBgToggle": "Fix background",
     "character.avatarHelp": "Auto-crops to a square and resizes. Everyone stays the same size on the map.",
     "character.nameLabel": "Name",
     "character.namePlaceholder": "Enter name",
@@ -625,6 +640,15 @@ function openTab(tabKey) {
     p.classList.toggle("is-active", p.dataset.tab === tabKey);
   }
 
+  const isAdvanced = tabKey === "board" || tabKey === "party" || tabKey === "hat";
+  if (moreBtnEl) {
+    moreBtnEl.classList.toggle("is-active", isAdvanced);
+    moreBtnEl.setAttribute("aria-expanded", "false");
+  }
+  if (moreMenuEl) {
+    moreMenuEl.hidden = true;
+  }
+
   if (tabKey === "hat") {
     hatStartIfNeeded();
   }
@@ -635,6 +659,48 @@ function openTab(tabKey) {
 for (const b of tabButtons) {
   b.addEventListener("click", () => openTab(b.dataset.tab));
 }
+
+function closeMoreMenu() {
+  if (moreMenuEl) moreMenuEl.hidden = true;
+  if (moreBtnEl) moreBtnEl.setAttribute("aria-expanded", "false");
+}
+
+function toggleMoreMenu() {
+  if (!moreMenuEl || !moreBtnEl) return;
+  const next = Boolean(moreMenuEl.hidden);
+  moreMenuEl.hidden = !next;
+  moreBtnEl.setAttribute("aria-expanded", next ? "true" : "false");
+}
+
+moreBtnEl?.addEventListener("click", (e) => {
+  e.preventDefault();
+  toggleMoreMenu();
+});
+
+for (const item of moreMenuItems) {
+  item.addEventListener("click", (e) => {
+    e.preventDefault();
+    const key = item.getAttribute("data-tab");
+    closeMoreMenu();
+    try {
+      if (panelEl && panelEl.classList.contains("is-collapsed")) setDrawerCollapsed(false);
+    } catch {
+      // ignore
+    }
+    if (key) openTab(key);
+  });
+}
+
+// Close on outside click / ESC.
+document.addEventListener("click", (e) => {
+  if (!moreMenuEl || moreMenuEl.hidden) return;
+  const t = e.target;
+  const inside = (t && t.closest && t.closest("#moreMenu")) || (t && t.closest && t.closest("#moreBtn"));
+  if (!inside) closeMoreMenu();
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") closeMoreMenu();
+});
 
 openTab("character");
 
@@ -762,6 +828,7 @@ installNoDoubleTapZoom();
 
 function closeDrawerOnGameplayInteraction(e) {
   if (!isMobileLayout()) return;
+  nudgeSafariChrome();
   if (!panelEl || panelEl.classList.contains('is-collapsed')) return;
   const t = e && e.target;
   if (t && t.closest && t.closest('#mobileMenu')) return;
@@ -1257,7 +1324,27 @@ async function refreshAvatarPreview() {
   }
 }
 
-async function fileToSquarePngDataUrl(file, size) {
+function refreshAvatarBgToggle() {
+  if (!avatarBgToggleBtn) return;
+  avatarBgToggleBtn.classList.toggle("is-active", Boolean(avatarBgFixEnabled));
+  avatarBgToggleBtn.setAttribute("aria-pressed", avatarBgFixEnabled ? "true" : "false");
+}
+
+refreshAvatarBgToggle();
+avatarBgToggleBtn?.addEventListener("click", () => {
+  avatarBgFixEnabled = !avatarBgFixEnabled;
+  try {
+    localStorage.setItem(AVATAR_BG_KEY, avatarBgFixEnabled ? "on" : "off");
+  } catch {
+    // ignore
+  }
+  refreshAvatarBgToggle();
+  statusEl.textContent = avatarBgFixEnabled
+    ? (lang === "en" ? "Background fix enabled." : "已開啟背景修正。")
+    : (lang === "en" ? "Background fix disabled." : "已關閉背景修正。");
+});
+
+async function fileToSquarePngDataUrl(file, size, { removeBg = false } = {}) {
   const s = Math.max(32, Math.min(192, Math.floor(Number(size) || 64)));
   const blob = file instanceof Blob ? file : null;
   if (!blob) throw new Error("invalid file");
@@ -1277,84 +1364,98 @@ async function fileToSquarePngDataUrl(file, size) {
     const sx = Math.floor((w - m) / 2);
     const sy = Math.floor((h - m) / 2);
 
-    const c = document.createElement("canvas");
-    c.width = s;
-    c.height = s;
-    const g = c.getContext("2d", { alpha: true });
-    g.clearRect(0, 0, s, s);
-    g.imageSmoothingEnabled = true;
-    g.imageSmoothingQuality = "high";
-    g.drawImage(img, sx, sy, m, m, 0, 0, s, s);
-
-    function rgbDist(a, b) {
-      return Math.abs(a.r - b.r) + Math.abs(a.g - b.g) + Math.abs(a.b - b.b);
-    }
-
-    function cornerColors(data) {
-      const get = (x, y) => {
-        const i = (s * y + x) * 4;
-        return { r: data[i], g: data[i + 1], b: data[i + 2], a: data[i + 3] };
-      };
-      return [get(0, 0), get(s - 1, 0), get(0, s - 1), get(s - 1, s - 1)];
-    }
+    // Process at a higher resolution first; downscaling too early will blend checkerboard backgrounds
+    // into many colors and make background removal less reliable.
+    const ss = Math.max(160, Math.min(512, s * 6));
+    const scratch = document.createElement("canvas");
+    scratch.width = ss;
+    scratch.height = ss;
+    const sg = scratch.getContext("2d", { alpha: true });
+    sg.clearRect(0, 0, ss, ss);
+    sg.imageSmoothingEnabled = false;
+    sg.drawImage(img, sx, sy, m, m, 0, 0, ss, ss);
 
     function tryRemoveBgEdges() {
-      // If the image already has transparency near the edges, don't touch it.
-      const imgData = g.getImageData(0, 0, s, s);
+      const imgData = sg.getImageData(0, 0, ss, ss);
       const data = imgData.data;
-      const corners = cornerColors(data);
+      const idx = (x, y) => (y * ss + x) * 4;
+      const corners = [
+        { x: 0, y: 0 },
+        { x: ss - 1, y: 0 },
+        { x: 0, y: ss - 1 },
+        { x: ss - 1, y: ss - 1 },
+      ].map((p) => {
+        const i = idx(p.x, p.y);
+        return { r: data[i], g: data[i + 1], b: data[i + 2], a: data[i + 3] };
+      });
+
+      // If the image already has transparency near the edges, don't touch it.
       if (corners.some((c) => c.a < 10)) return false;
 
-      // Cluster corner colors into 1–2 backgrounds (solid or checkerboard-style).
+      const tol = 22; // RGB manhattan distance for clustering
       const clusters = [];
-      const tol = 18; // RGB manhattan
-      for (const c0 of corners) {
-        const c = { r: c0.r, g: c0.g, b: c0.b };
-        let found = false;
+      function dist(a, b) {
+        return Math.abs(a.r - b.r) + Math.abs(a.g - b.g) + Math.abs(a.b - b.b);
+      }
+      function addCluster(c) {
         for (const k of clusters) {
-          if (rgbDist(k, c) <= tol) {
-            found = true;
-            break;
+          if (dist(k, c) <= tol) {
+            k.count += 1;
+            return;
           }
         }
-        if (!found) clusters.push(c);
+        if (clusters.length < 8) clusters.push({ r: c.r, g: c.g, b: c.b, count: 1 });
       }
-      if (clusters.length === 0 || clusters.length > 2) return false;
 
-      const matchTol = clusters.length === 2 ? 22 : 18;
-      const w2 = s;
-      const h2 = s;
-      const visited = new Uint8Array(w2 * h2);
-      const qx = new Int32Array(w2 * h2);
-      const qy = new Int32Array(w2 * h2);
-      let qh = 0;
-      let qt = 0;
+      // Sample a thin border ring.
+      const step = Math.max(1, Math.floor(ss / 64));
+      for (let x = 0; x < ss; x += step) {
+        for (const y of [0, 1, ss - 2, ss - 1]) {
+          const i = idx(x, y);
+          if (data[i + 3] > 0) addCluster({ r: data[i], g: data[i + 1], b: data[i + 2] });
+        }
+      }
+      for (let y = 0; y < ss; y += step) {
+        for (const x of [0, 1, ss - 2, ss - 1]) {
+          const i = idx(x, y);
+          if (data[i + 3] > 0) addCluster({ r: data[i], g: data[i + 1], b: data[i + 2] });
+        }
+      }
 
-      function matchesBg(r, g2, b) {
-        for (const k of clusters) {
-          const d = Math.abs(r - k.r) + Math.abs(g2 - k.g) + Math.abs(b - k.b);
+      if (clusters.length === 0) return false;
+      clusters.sort((a, b) => b.count - a.count);
+      const bg = clusters.slice(0, 6); // support checkerboard + mild compression artifacts
+
+      const matchTol = bg.length > 1 ? 28 : 22;
+      function matchesBg(r, g, b) {
+        for (const k of bg) {
+          const d = Math.abs(r - k.r) + Math.abs(g - k.g) + Math.abs(b - k.b);
           if (d <= matchTol) return true;
         }
         return false;
       }
 
+      const visited = new Uint8Array(ss * ss);
+      const qx = new Int32Array(ss * ss);
+      const qy = new Int32Array(ss * ss);
+      let qh = 0;
+      let qt = 0;
       function push(x, y) {
-        const idx = y * w2 + x;
-        if (visited[idx]) return;
-        visited[idx] = 1;
+        const p = y * ss + x;
+        if (visited[p]) return;
+        visited[p] = 1;
         qx[qt] = x;
         qy[qt] = y;
         qt++;
       }
 
-      // Seed from all edges.
-      for (let x = 0; x < w2; x++) {
+      for (let x = 0; x < ss; x++) {
         push(x, 0);
-        push(x, h2 - 1);
+        push(x, ss - 1);
       }
-      for (let y = 0; y < h2; y++) {
+      for (let y = 0; y < ss; y++) {
         push(0, y);
-        push(w2 - 1, y);
+        push(ss - 1, y);
       }
 
       let removed = 0;
@@ -1362,29 +1463,75 @@ async function fileToSquarePngDataUrl(file, size) {
         const x = qx[qh];
         const y = qy[qh];
         qh++;
-        const i = (y * w2 + x) * 4;
-        const r = data[i];
-        const g3 = data[i + 1];
-        const b = data[i + 2];
+        const i = idx(x, y);
         const a = data[i + 3];
-        if (a > 0 && matchesBg(r, g3, b)) {
+        if (a > 0 && matchesBg(data[i], data[i + 1], data[i + 2])) {
           data[i + 3] = 0;
           removed++;
           if (x > 0) push(x - 1, y);
-          if (x < w2 - 1) push(x + 1, y);
+          if (x < ss - 1) push(x + 1, y);
           if (y > 0) push(x, y - 1);
-          if (y < h2 - 1) push(x, y + 1);
+          if (y < ss - 1) push(x, y + 1);
         }
       }
 
-      if (removed <= 24) return false; // likely not a background
-      g.putImageData(imgData, 0, 0);
+      if (removed < Math.max(64, Math.floor(ss * ss * 0.02))) return false;
+      sg.putImageData(imgData, 0, 0);
       return true;
     }
 
-    const wantRemove = Boolean(avatarRemoveBgEl && avatarRemoveBgEl.checked);
-    if (wantRemove) tryRemoveBgEdges();
-    return c.toDataURL("image/png");
+    if (removeBg) tryRemoveBgEdges();
+
+    // Content-aware crop: compute bbox of non-transparent pixels, then pad it so avatars feel consistent on map.
+    const clampN = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+    let bx = 0;
+    let by = 0;
+    let bw = ss;
+    let bh = ss;
+    try {
+      const imgData = sg.getImageData(0, 0, ss, ss);
+      const data = imgData.data;
+      let minX = ss, minY = ss, maxX = -1, maxY = -1;
+      for (let y = 0; y < ss; y++) {
+        for (let x = 0; x < ss; x++) {
+          const a = data[(y * ss + x) * 4 + 3];
+          if (a > 10) {
+            if (x < minX) minX = x;
+            if (y < minY) minY = y;
+            if (x > maxX) maxX = x;
+            if (y > maxY) maxY = y;
+          }
+        }
+      }
+      if (maxX >= 0 && maxY >= 0) {
+        const pad = Math.max(10, Math.floor(Math.max(maxX - minX, maxY - minY) * 0.14));
+        minX = Math.max(0, minX - pad);
+        minY = Math.max(0, minY - pad);
+        maxX = Math.min(ss - 1, maxX + pad);
+        maxY = Math.min(ss - 1, maxY + pad);
+        // force square crop
+        const cw = maxX - minX + 1;
+        const ch = maxY - minY + 1;
+        const side = Math.max(cw, ch);
+        const cx = Math.floor((minX + maxX) / 2);
+        const cy = Math.floor((minY + maxY) / 2);
+        bx = clampN(cx - Math.floor(side / 2), 0, ss - side);
+        by = clampN(cy - Math.floor(side / 2), 0, ss - side);
+        bw = side;
+        bh = side;
+      }
+    } catch {
+      // ignore
+    }
+
+    const out = document.createElement("canvas");
+    out.width = s;
+    out.height = s;
+    const g = out.getContext("2d", { alpha: true });
+    g.clearRect(0, 0, s, s);
+    g.imageSmoothingEnabled = false;
+    g.drawImage(scratch, bx, by, bw, bh, 0, 0, s, s);
+    return out.toDataURL("image/png");
   } finally {
     try {
       URL.revokeObjectURL(url);
@@ -1424,7 +1571,7 @@ avatarFileEl?.addEventListener("change", async () => {
     const f = avatarFileEl.files && avatarFileEl.files[0];
     if (!f) return;
     // Optimistic preview: show cropped version immediately.
-    const dataUrl = await fileToSquarePngDataUrl(f, 64);
+    const dataUrl = await fileToSquarePngDataUrl(f, 64, { removeBg: Boolean(avatarBgFixEnabled) });
     if (avatarPreviewEl) avatarPreviewEl.src = dataUrl;
     await uploadAvatarDataUrl(dataUrl);
     statusEl.textContent = lang === "en" ? "Avatar updated." : "頭像已更新。";
@@ -2597,8 +2744,8 @@ function draw() {
     let hasAvatar = false;
 
     if (customImg) {
-      const dw = 74;
-      const dh = 74;
+      const dw = 68;
+      const dh = 68;
       const dx = p.x - dw / 2;
       const dy = p.y - dh + 22;
       ctx.drawImage(customImg, dx, dy, dw, dh);
@@ -2612,8 +2759,8 @@ function draw() {
       const sw = cellW;
       const sh = cellH;
 
-      const dw = 74;
-      const dh = 74;
+      const dw = 68;
+      const dh = 68;
       const dx = p.x - dw / 2;
       const dy = p.y - dh + 22;
       ctx.drawImage(avatarSprite, sx, sy, sw, sh, dx, dy, dw, dh);

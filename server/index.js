@@ -62,9 +62,14 @@ function persistJoinCodes() {
     const out = [];
     for (const [code, rec] of joinCodes.entries()) {
       if (!code || !rec) continue;
-      out.push({ code, playerId: rec.playerId, expiresAt: rec.expiresAt });
+      out.push({
+        code,
+        playerId: rec.playerId,
+        expiresAt: rec.expiresAt,
+        createdAt: Number(rec.createdAt || 0) || undefined,
+      });
     }
-    writeJsonAtomic(JOIN_CODES_DATA_PATH, { version: 1, savedAt: new Date().toISOString(), codes: out });
+    writeJsonAtomic(JOIN_CODES_DATA_PATH, { version: 2, savedAt: new Date().toISOString(), codes: out });
   } catch {
     // ignore
   }
@@ -420,11 +425,26 @@ function xpToNext(level) {
 
 const players = new Map(); // playerId -> player
 const botTokens = new Map(); // botToken -> playerId
-const joinCodes = new Map(); // joinCode -> { playerId, expiresAt }
+const joinCodes = new Map(); // joinCode -> { playerId, expiresAt, createdAt }
 
 const monsters = new Map(); // monsterId -> monster
 
 const drops = new Map(); // dropId -> drop
+
+const MAX_JOIN_CODES_PER_PLAYER = 5;
+function pruneJoinCodesForPlayer(playerId) {
+  const pid = String(playerId || "").trim();
+  if (!pid) return;
+  const list = [];
+  for (const [code, rec] of joinCodes.entries()) {
+    if (!rec || rec.playerId !== pid) continue;
+    list.push({ code, createdAt: Number(rec.createdAt || 0) || 0, expiresAt: Number(rec.expiresAt || 0) || 0 });
+  }
+  if (list.length <= MAX_JOIN_CODES_PER_PLAYER) return;
+  list.sort((a, b) => (a.createdAt || a.expiresAt) - (b.createdAt || b.expiresAt));
+  const remove = list.slice(0, Math.max(0, list.length - MAX_JOIN_CODES_PER_PLAYER));
+  for (const r of remove) joinCodes.delete(r.code);
+}
 
 const parties = new Map(); // partyId -> { id, leaderId, members:Set(playerId) }
 const partyJoinCodes = new Map(); // joinCode -> { partyId, expiresAt }
@@ -759,9 +779,15 @@ try {
     const code = String(row?.code || "").trim().toUpperCase();
     const playerId = String(row?.playerId || "").trim();
     const expiresAt = Number(row?.expiresAt || 0);
+    const createdAt = Number(row?.createdAt || 0);
     if (!code || !playerId || !Number.isFinite(expiresAt)) continue;
     if (nowMs() > expiresAt) continue;
-    joinCodes.set(code, { playerId, expiresAt });
+    const approxCreatedAt = expiresAt - 24 * 60 * 60 * 1000; // v2 introduced createdAt; v1 is assumed 24h TTL
+    joinCodes.set(code, {
+      playerId,
+      expiresAt,
+      createdAt: Number.isFinite(createdAt) && createdAt > 0 ? createdAt : approxCreatedAt,
+    });
   }
 } catch {
   // ignore
@@ -1766,16 +1792,12 @@ app.post("/api/join-codes", (req, res) => {
     // ignore
   }
 
-  // one active code per player
-  for (const [code, v] of joinCodes.entries()) {
-    if (v.playerId === p.id) joinCodes.delete(code);
-  }
-
   const joinCode = randomCode(6);
   // Join tokens should be re-usable across chat sessions. Users may paste the same join token
   // into a new Telegram/WhatsApp session to re-link and query status.
   const expiresAt = nowMs() + 24 * 60 * 60 * 1000; // 24h
-  joinCodes.set(joinCode, { playerId: p.id, expiresAt });
+  joinCodes.set(joinCode, { playerId: p.id, expiresAt, createdAt: nowMs() });
+  pruneJoinCodesForPlayer(p.id);
   persistJoinCodes();
 
   const baseUrl = getPublicBaseUrl(req);

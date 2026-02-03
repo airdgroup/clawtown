@@ -89,12 +89,23 @@
                   <div class="ui-tabs" role="tablist" aria-label="Panels">
                     <button class="ui-tab is-active" data-tab="character" role="tab" aria-selected="true" data-i18n="tabs.character">角色</button>
                     <button class="ui-tab" data-tab="inventory" role="tab" aria-selected="false" data-i18n="tabs.inventory">背包</button>
-                    <button class="ui-tab" data-tab="party" role="tab" aria-selected="false" data-i18n="tabs.party">隊伍</button>
-                    <button class="ui-tab" data-tab="hat" role="tab" aria-selected="false" data-i18n="tabs.hat">分類帽</button>
-                    <button class="ui-tab" data-tab="board" role="tab" aria-selected="false" data-i18n="tabs.board">公告板</button>
                     <button class="ui-tab" data-tab="chat" role="tab" aria-selected="false" data-i18n="tabs.chat">聊天</button>
                     <button class="ui-tab" data-tab="bot" role="tab" aria-selected="false" data-i18n="tabs.bot">Bot 想法</button>
                     <button class="ui-tab" data-tab="link" role="tab" aria-selected="false" data-i18n="tabs.link">連結 Bot</button>
+
+                    <!-- Advanced tabs are still supported, but are tucked under "More" to reduce onboarding clutter. -->
+                    <button class="ui-tab is-advanced" data-tab="board" role="tab" aria-selected="false" data-i18n="tabs.board">公告板</button>
+                    <button class="ui-tab is-advanced" data-tab="party" role="tab" aria-selected="false" data-i18n="tabs.party">隊伍</button>
+                    <button class="ui-tab is-advanced" data-tab="hat" role="tab" aria-selected="false" data-i18n="tabs.hat">分類帽</button>
+
+                    <div class="ui-more">
+                      <button class="ui-more-btn" id="moreBtn" type="button" aria-haspopup="menu" aria-expanded="false" data-i18n="tabs.more">更多</button>
+                      <div class="ui-more-menu" id="moreMenu" role="menu" hidden>
+                        <button class="ui-more-item" type="button" role="menuitem" data-tab="board" data-i18n="tabs.board">公告板</button>
+                        <button class="ui-more-item" type="button" role="menuitem" data-tab="party" data-i18n="tabs.party">隊伍</button>
+                        <button class="ui-more-item" type="button" role="menuitem" data-tab="hat" data-i18n="tabs.hat">分類帽</button>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -110,10 +121,7 @@
                       <input id="avatarFile" type="file" accept="image/*" hidden />
                       <button id="avatarUpload" class="btn btn-mini" data-i18n="character.avatarUpload">上傳頭像</button>
                       <button id="avatarReset" class="btn btn-ghost btn-mini" data-i18n="character.avatarReset">恢復預設</button>
-                      <label class="avatar-bg-toggle">
-                        <input id="avatarRemoveBg" type="checkbox" checked />
-                        <span data-i18n="character.avatarRemoveBg">自動去背（Beta）</span>
-                      </label>
+                      <button id="avatarBgToggle" class="btn btn-ghost btn-mini" type="button" data-i18n="character.avatarBgToggle">背景修正</button>
                       <div class="helper" data-i18n="character.avatarHelp">
                         會自動裁切成方形並縮放；地圖上大家大小一致。
                       </div>
