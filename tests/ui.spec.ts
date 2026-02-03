@@ -747,6 +747,93 @@ test('Bot: status endpoint returns concise JSON', async ({ page }) => {
   expect(data?.nearby?.radiusTiles).toBe(6);
 });
 
+test('Bot: thought endpoint updates state (thought bubble)', async ({ page }) => {
+  await resetWorld(page);
+  await page.goto('/');
+  await waitForFonts(page);
+  await closeOnboarding(page);
+
+  const playerId = await page.evaluate(() => {
+    try {
+      return JSON.parse(localStorage.getItem('clawtown.player') || 'null')?.playerId || null;
+    } catch {
+      return null;
+    }
+  });
+  expect(playerId).toBeTruthy();
+
+  const join = await page.request.post('/api/join-codes', { data: { playerId } });
+  const joinData = await join.json();
+  expect(joinData.ok).toBeTruthy();
+
+  const link = await page.request.post('/api/bot/link', { data: { joinCode: joinData.joinCode } });
+  const linkData = await link.json();
+  expect(linkData.ok).toBeTruthy();
+  const botToken = linkData.botToken;
+
+  const thoughtText = 'I think we should hunt slimes near the plaza.';
+  const post = await page.request.post('/api/bot/thought', {
+    headers: { Authorization: `Bearer ${botToken}` },
+    data: { text: thoughtText },
+  });
+  expect(post.ok()).toBeTruthy();
+
+  await page.waitForFunction(
+    (t) => {
+      const st = (window as any).__ct?.state;
+      const you = (window as any).__ct?.you;
+      if (!st || !you) return false;
+      const p = (st.players || []).find((pp: any) => pp && pp.id === you.id);
+      return p && p.bot && String(p.bot.thought || '').includes(t);
+    },
+    thoughtText,
+    { timeout: 8000 }
+  );
+});
+
+test('Bot: events endpoint returns kill events (cursor-based)', async ({ page }) => {
+  await resetWorld(page);
+  await page.goto('/');
+  await waitForFonts(page);
+  await closeOnboarding(page);
+
+  const playerId = await page.evaluate(() => {
+    try {
+      return JSON.parse(localStorage.getItem('clawtown.player') || 'null')?.playerId || null;
+    } catch {
+      return null;
+    }
+  });
+  expect(playerId).toBeTruthy();
+
+  // Put player at a deterministic position and spawn a 1HP slime on top.
+  await page.request.post('/api/debug/teleport', { data: { playerId, x: 520, y: 300 } });
+  await page.request.post('/api/debug/spawn-monster', { data: { id: 'm_evt_slime', kind: 'slime', name: 'Event Poring', x: 520, y: 300, maxHp: 1, hp: 1 } });
+
+  const join = await page.request.post('/api/join-codes', { data: { playerId } });
+  const joinData = await join.json();
+  expect(joinData.ok).toBeTruthy();
+
+  const link = await page.request.post('/api/bot/link', { data: { joinCode: joinData.joinCode } });
+  const linkData = await link.json();
+  expect(linkData.ok).toBeTruthy();
+  const botToken = linkData.botToken;
+
+  // Kill it.
+  await page.request.post('/api/bot/cast', { headers: { Authorization: `Bearer ${botToken}` }, data: { spell: 'signature' } });
+
+  // Fetch events from cursor 0.
+  const resp = await page.request.get('/api/bot/events?cursor=0&limit=30', {
+    headers: { Authorization: `Bearer ${botToken}` },
+  });
+  expect(resp.ok()).toBeTruthy();
+  const data = await resp.json();
+  expect(data?.ok).toBeTruthy();
+  expect(Array.isArray(data?.events)).toBeTruthy();
+  expect(typeof data?.nextCursor).toBe('number');
+  expect((data.events as any[]).some((e: any) => e && e.kind === 'kill' && String(e.text || '').includes('Event Poring'))).toBeTruthy();
+});
+
 test('Skill 4: targeted fireball damages monsters', async ({ page }) => {
   await resetWorld(page);
   await page.goto('/');

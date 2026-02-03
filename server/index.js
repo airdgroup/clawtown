@@ -96,6 +96,9 @@ function exportPlayerProgress(p) {
     jobSkill: p.jobSkill || null,
     signatureSpell: p.signatureSpell || null,
     partyId: p.partyId || null,
+    botThought: p.botThought && typeof p.botThought === 'object' ? { text: safeText(p.botThought.text, 180), at: Number(p.botThought.at || 0) || 0 } : null,
+    botEvents: Array.isArray(p.botEvents) ? p.botEvents.slice(-120) : [],
+    botEventSeq: Math.max(0, Math.floor(Number(p.botEventSeq) || 0)),
   };
 }
 
@@ -138,6 +141,34 @@ function importPlayerProgress(p, data) {
   if (data.partyId) {
     // party is not persisted yet (social state is transient), ignore.
     p.partyId = null;
+  }
+
+  // Bot-side UX: optional persistence for "pet notifications".
+  try {
+    ensureBotEventState(p);
+    if (data.botThought && typeof data.botThought === 'object') {
+      p.botThought = {
+        text: safeText(String(data.botThought.text || ''), 180),
+        at: Math.max(0, Math.floor(Number(data.botThought.at) || 0)),
+      };
+    }
+    if (Array.isArray(data.botEvents)) {
+      p.botEvents = data.botEvents
+        .filter((e) => e && typeof e === 'object')
+        .slice(-BOT_EVENT_MAX)
+        .map((e) => ({
+          id: Math.max(0, Math.floor(Number(e.id) || 0)),
+          at: Math.max(0, Math.floor(Number(e.at) || 0)),
+          kind: String(e.kind || 'info'),
+          text: safeText(String(e.text || ''), 220),
+          important: Boolean(e.important),
+          data: e.data && typeof e.data === 'object' ? e.data : null,
+        }))
+        .filter((e) => e.id > 0 && e.at > 0 && e.text);
+    }
+    if (Number.isFinite(Number(data.botEventSeq))) p.botEventSeq = Math.max(0, Math.floor(Number(data.botEventSeq) || 0));
+  } catch {
+    // ignore
   }
 }
 
@@ -770,6 +801,33 @@ const boardPosts = []; // newest last
 const chats = []; // newest last
 const fxEvents = []; // ephemeral; stored briefly for late join
 
+const BOT_EVENT_MAX = 240;
+function ensureBotEventState(p) {
+  if (!p) return;
+  if (!Number.isFinite(Number(p.botEventSeq))) p.botEventSeq = 0;
+  if (!Array.isArray(p.botEvents)) p.botEvents = [];
+  if (!p.botThought || typeof p.botThought !== "object") p.botThought = { text: "", at: 0 };
+}
+
+function pushBotEvent(p, { kind, text, data, important } = {}) {
+  if (!p) return;
+  ensureBotEventState(p);
+  const msg = safeText(String(text || ""), 220);
+  if (!msg) return;
+  p.botEventSeq = Math.max(0, Math.floor(Number(p.botEventSeq) || 0)) + 1;
+  const evt = {
+    id: p.botEventSeq,
+    at: nowMs(),
+    kind: String(kind || "info"),
+    text: msg,
+    important: Boolean(important),
+    data: data && typeof data === "object" ? data : null,
+  };
+  p.botEvents.push(evt);
+  if (p.botEvents.length > BOT_EVENT_MAX) p.botEvents.splice(0, p.botEvents.length - BOT_EVENT_MAX);
+  markDirty(p);
+}
+
 // Join codes are meant to be re-usable across chat sessions and should survive server restarts.
 // We keep them in-memory for speed and persist the small map to disk.
 try {
@@ -844,6 +902,9 @@ function getOrCreatePlayer(playerId, name) {
         localResult: null,
         botResult: null,
       },
+      botThought: { text: "", at: 0 },
+      botEvents: [],
+      botEventSeq: 0,
       lastMoveAt: 0,
       lastChatAt: 0,
       lastCastAt: 0,
@@ -859,6 +920,7 @@ function getOrCreatePlayer(playerId, name) {
       // ensure defaults
       if (!p.jobSkill) p.jobSkill = defaultJobSkillForJob(p.job);
       if (!p.signatureSpell) p.signatureSpell = { name: "", tagline: "", effect: "spark" };
+      ensureBotEventState(p);
     }
 
     ensurePlayerVitals(p, { gainHpFromMaxHpIncrease: false });
@@ -892,6 +954,7 @@ function defaultJobSkillForJob(job) {
 
 function toPublicPlayer(p) {
   ensurePlayerVitals(p, { gainHpFromMaxHpIncrease: false });
+  ensureBotEventState(p);
   return {
     id: p.id,
     name: p.name,
@@ -943,6 +1006,8 @@ function toPublicPlayer(p) {
     bot: {
       lastSeenAt: Number(p.externalBotLastSeenAt || 0) || null,
       lastActionAt: Number(p.externalBotLastActionAt || 0) || null,
+      thought: safeText(String(p.botThought?.text || ""), 180),
+      thoughtAt: Number(p.botThought?.at || 0) || null,
     },
   };
 }
@@ -1171,11 +1236,17 @@ function applyDamage(p, m, dmg) {
         ensurePlayerVitals(kp, { gainHpFromMaxHpIncrease: true });
         kp.hp = kp.maxHp;
         pushChat({ kind: "system", text: `${kp.name} reached Level ${kp.level}!`, from: { id: "system", name: "Town" } });
+        pushBotEvent(kp, { kind: "level", text: `Level up: ${kp.level}`, important: true, data: { level: kp.level } });
         markDirty(kp);
       }
     }
 
     pushChat({ kind: "system", text: `${p.name} defeated ${m.name}! (+${baseXp} XP)`, from: { id: "system", name: "Town" } });
+    pushBotEvent(p, {
+      kind: "kill",
+      text: `Defeated ${m.name}. (+${baseXp} XP)`,
+      data: { monster: { id: m.id, name: m.name, kind: m.kind }, xp: baseXp },
+    });
   }
 
   return { ok: true, dealt, hp: m.hp, alive: m.alive, killed };
@@ -2119,9 +2190,44 @@ app.post("/api/bot/chat", (req, res) => {
     p.statPoints += Math.max(0, newLevel - prevLevel);
     ensurePlayerVitals(p, { gainHpFromMaxHpIncrease: true });
     pushChat({ kind: "system", text: `${p.name} reached Level ${p.level}!`, from: { id: "system", name: "Town" } });
+    pushBotEvent(p, { kind: "level", text: `Level up: ${p.level}`, important: true, data: { level: p.level } });
     markDirty(p);
   }
   res.json({ ok: true });
+});
+
+// Let bots update a short-lived "thought bubble" without spamming chat.
+app.post("/api/bot/thought", (req, res) => {
+  const auth = authBot(req);
+  if (!auth) return res.status(401).json({ ok: false, error: "unauthorized" });
+  const p = auth.player;
+  const t = nowMs();
+  p.externalBotLastActionAt = t;
+
+  const text = safeText(String(req.body?.text || ""), 180);
+  if (!text) return res.status(400).json({ ok: false, error: "missing text" });
+
+  ensureBotEventState(p);
+  p.botThought = { text, at: t };
+  pushBotEvent(p, { kind: "thought", text, data: { text }, important: false });
+  res.json({ ok: true, thoughtAt: t });
+});
+
+// A cursor-based event feed designed for chat-app notifications.
+// Bots can poll every N minutes and send only new events to Telegram/WhatsApp/etc.
+app.get("/api/bot/events", (req, res) => {
+  const auth = authBot(req);
+  if (!auth) return res.status(401).json({ ok: false, error: "unauthorized" });
+  const p = auth.player;
+  p.externalBotLastActionAt = nowMs();
+  ensureBotEventState(p);
+
+  const cursor = Math.max(0, Math.floor(Number(req.query.cursor) || 0));
+  const limit = Math.max(1, Math.min(60, Math.floor(Number(req.query.limit) || 20)));
+
+  const list = p.botEvents.filter((e) => e && Number(e.id) > cursor).slice(0, limit);
+  const nextCursor = list.length ? Math.max(...list.map((e) => Number(e.id) || 0)) : cursor;
+  res.json({ ok: true, events: list, nextCursor });
 });
 
 app.post("/api/bot/hat-result", (req, res) => {
@@ -2265,6 +2371,12 @@ function tryAutoPickup(p) {
     const def = getItemDef(d.itemId);
     const name = def ? def.name : d.itemId;
     pushChat({ kind: "system", text: `${p.name} picked up ${name}${d.qty > 1 ? ` x${d.qty}` : ""}.`, from: { id: "system", name: "Town" } });
+    pushBotEvent(p, {
+      kind: "loot",
+      text: `Picked up ${name}${d.qty > 1 ? ` x${d.qty}` : ""}.`,
+      data: { itemId: d.itemId, name, qty: d.qty, rarity: def ? def.rarity : "common" },
+      important: def && (def.rarity === "rare" || def.rarity === "epic"),
+    });
     // tiny dopamine
     p.xp += 1;
     markDirty(p);
@@ -2275,6 +2387,7 @@ function tryAutoPickup(p) {
       p.statPoints += Math.max(0, newLevel - prevLevel);
       ensurePlayerVitals(p, { gainHpFromMaxHpIncrease: true });
       pushChat({ kind: "system", text: `${p.name} reached Level ${p.level}!`, from: { id: "system", name: "Town" } });
+      pushBotEvent(p, { kind: "level", text: `Level up: ${p.level}`, important: true, data: { level: p.level } });
       markDirty(p);
     }
     // allow multiple pickups per tick

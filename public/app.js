@@ -3160,7 +3160,10 @@ function renderBotThoughts() {
           ? 'Bot is online, but no recent actions (no goal/cast/intent). Check Moltbot logs or rate limits.'
           : 'Bot 已上線，但最近沒有動作（沒有 goal/cast/intent）。請檢查 Moltbot 是否卡住，或看是否被 rate limit。';
       } else {
-        botStatusEl.textContent = lang === 'en' ? 'Bot is online and acting.' : 'Bot 已上線並在行動中。';
+        const thought = b && String(b.thought || '').trim();
+        botStatusEl.textContent = thought
+          ? (lang === 'en' ? `Bot is online. Latest thought: ${thought}` : `Bot 已上線。最新想法：${thought}`)
+          : (lang === 'en' ? 'Bot is online and acting.' : 'Bot 已上線並在行動中。');
       }
     }
   }
@@ -3226,6 +3229,19 @@ function connect() {
         if (!prev || created > prev.atMs) {
           localLastSpeech.set(c.from.id, { text: c.text, atMs: created });
         }
+      }
+
+      // Also show structured bot thoughts as speech bubbles (without spamming chat).
+      // Allow a bit of clock skew between server and client.
+      const now = Date.now();
+      for (const pp of state.players || []) {
+        const b = pp && pp.bot;
+        const text = b && String(b.thought || "").trim();
+        const at = b && Number(b.thoughtAt || 0);
+        if (!text || !Number.isFinite(at) || at <= 0) continue;
+        if (Math.abs(now - at) > 25_000) continue;
+        const prev = localLastSpeech.get(pp.id);
+        if (!prev || at > prev.atMs) localLastSpeech.set(pp.id, { text: `[BOT] ${text}`.slice(0, 200), atMs: at });
       }
 
       renderHeader();
