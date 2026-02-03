@@ -165,6 +165,28 @@ test('Input: arrow keys do not scroll the page', async ({ page }) => {
   expect(y1).toBe(0);
 });
 
+test('World: spawns 5 colored slimes', async ({ page }) => {
+  await resetWorld(page);
+  await page.goto('/');
+  await waitForFonts(page);
+  await closeOnboarding(page);
+
+  const out = await page.waitForFunction(() => {
+    const mons = (globalThis as any).__ct?.state?.monsters;
+    if (!Array.isArray(mons) || mons.length === 0) return null;
+    const slimes = mons.filter((m: any) => m && m.alive && m.kind === 'slime');
+    if (slimes.length < 5) return null;
+    const colors = slimes.map((m: any) => String(m.color || '')).filter(Boolean);
+    const uniq = new Set(colors);
+    return { slimeCount: slimes.length, colorCount: colors.length, uniqCount: uniq.size };
+  });
+
+  const v = await out.jsonValue();
+  expect(v.slimeCount).toBeGreaterThanOrEqual(5);
+  expect(v.colorCount).toBeGreaterThanOrEqual(5);
+  expect(v.uniqCount).toBeGreaterThanOrEqual(5);
+});
+
 test('Layout: right panel scroll does not move map', async ({ page }) => {
   await resetWorld(page);
   await page.setViewportSize({ width: 1280, height: 720 });

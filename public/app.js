@@ -1793,7 +1793,9 @@ function drawMonsters() {
     ctx.fill();
 
     // body
-    const fill = m.kind === "slime" ? "rgba(52, 199, 89, 0.85)" : "rgba(255, 59, 48, 0.82)";
+    const fill = (m.color && typeof m.color === 'string')
+      ? String(m.color)
+      : (m.kind === "slime" ? "rgba(52, 199, 89, 0.85)" : "rgba(255, 59, 48, 0.82)");
     ctx.beginPath();
     ctx.fillStyle = fill;
     ctx.arc(x, y, 14, 0, Math.PI * 2);

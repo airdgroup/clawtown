@@ -689,13 +689,14 @@ function toPublicMonster(m) {
     hp: m.hp,
     maxHp: m.maxHp,
     alive: m.alive,
+    color: m.color || null,
   };
 }
 
 function spawnInitialMonsters() {
   if (monsters.size > 0) return;
 
-  const make = (id, kind, name, x, y, maxHp) => {
+  const make = (id, kind, name, x, y, maxHp, color) => {
     monsters.set(id, {
       id,
       kind,
@@ -706,6 +707,7 @@ function spawnInitialMonsters() {
       maxHp,
       alive: true,
       respawnAt: null,
+      color: color || null,
       vx: Math.random() < 0.5 ? -1 : 1,
       vy: Math.random() < 0.5 ? -1 : 1,
       nextWanderAt: nowMs() + 500 + Math.floor(Math.random() * 1500),
@@ -713,9 +715,12 @@ function spawnInitialMonsters() {
   };
 
   // Put slimes near the spawn plaza so v1 feels alive.
-  make("m_slime_1", "slime", "Poring", 13 * WORLD.tileSize + 28, 9 * WORLD.tileSize + 18, 18);
-  make("m_slime_2", "slime", "Drops", 17 * WORLD.tileSize + 18, 9 * WORLD.tileSize + 6, 14);
-  make("m_slime_3", "slime", "Poporing", 15 * WORLD.tileSize + 70, 11 * WORLD.tileSize + 18, 20);
+  // Colors are chosen to harmonize with the sky/grass palette while staying readable.
+  make("m_slime_1", "slime", "Poring", 13 * WORLD.tileSize + 28, 9 * WORLD.tileSize + 18, 18, "rgba(251, 182, 206, 0.9)");
+  make("m_slime_2", "slime", "Drops", 17 * WORLD.tileSize + 18, 9 * WORLD.tileSize + 6, 14, "rgba(125, 211, 252, 0.9)");
+  make("m_slime_3", "slime", "Poporing", 15 * WORLD.tileSize + 70, 11 * WORLD.tileSize + 18, 20, "rgba(134, 239, 172, 0.9)");
+  make("m_slime_4", "slime", "Marin", 12 * WORLD.tileSize + 18, 11 * WORLD.tileSize + 26, 16, "rgba(94, 234, 212, 0.9)");
+  make("m_slime_5", "slime", "Metaling", 18 * WORLD.tileSize + 22, 7 * WORLD.tileSize + 18, 22, "rgba(252, 211, 77, 0.92)");
 }
 
 function randomSpawnPoint() {
@@ -1371,6 +1376,7 @@ if (String(process.env.CT_TEST || "").trim() === "1") {
     const id = String(req.body?.id || randomToken("m")).trim();
     const kind = String(req.body?.kind || "slime").trim().toLowerCase();
     const name = safeText(req.body?.name || (kind === "slime" ? "Poring" : "Monster"), 24);
+    const color = safeText(req.body?.color || "", 32);
     const x = Number(req.body?.x);
     const y = Number(req.body?.y);
     const maxHp = Math.max(1, Math.floor(Number(req.body?.maxHp || 10)));
@@ -1386,6 +1392,7 @@ if (String(process.env.CT_TEST || "").trim() === "1") {
       maxHp,
       alive: hp > 0,
       respawnAt: null,
+      color: color || null,
       vx: 0,
       vy: 0,
       nextWanderAt: nowMs() + 5000,
