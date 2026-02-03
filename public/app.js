@@ -148,6 +148,23 @@ let pendingTargetUntilMs = 0;
 
 const localLastSpeech = new Map(); // playerId -> { text, atMs }
 
+const pulseTimers = new WeakMap();
+
+function pulse(el) {
+  if (!el) return;
+  try {
+    const prev = pulseTimers.get(el);
+    if (prev) clearTimeout(prev);
+  } catch {
+    // ignore
+  }
+  el.classList.add("is-pressed");
+  const t = setTimeout(() => {
+    el.classList.remove("is-pressed");
+  }, 120);
+  pulseTimers.set(el, t);
+}
+
 function openTab(tabKey) {
   for (const b of tabButtons) {
     const is = b.dataset.tab === tabKey;
@@ -264,22 +281,44 @@ resetSkill1Btn?.addEventListener("click", () => {
   if (skill1EffectEl) skill1EffectEl.value = you.signatureSpell?.effect || "spark";
 });
 
+saveSkill4Btn?.addEventListener("click", () => {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  const name = String(skill4NameEl?.value || "").trim().slice(0, 48);
+  const spell = String(skill4SpellEl?.value || "signature").trim();
+  ws.send(JSON.stringify({ type: "set_job_skill", name, spell }));
+  // Optimistic UI update; server state will reconcile on next tick.
+  if (you) {
+    you.jobSkill = { name, spell };
+    renderHeader();
+  }
+});
+
+resetSkill4Btn?.addEventListener("click", () => {
+  if (!you) return;
+  if (skill4NameEl) skill4NameEl.value = you.jobSkill?.name || "";
+  if (skill4SpellEl) skill4SpellEl.value = you.jobSkill?.spell || "signature";
+});
+
 slot1?.addEventListener("click", () => {
+  pulse(slot1);
   if (!ws || ws.readyState !== WebSocket.OPEN) return;
   ws.send(JSON.stringify({ type: "cast" }));
 });
 
 slot2?.addEventListener("click", () => {
+  pulse(slot2);
   if (!ws || ws.readyState !== WebSocket.OPEN) return;
   ws.send(JSON.stringify({ type: "emote", emote: "wave" }));
 });
 
 slot3?.addEventListener("click", () => {
+  pulse(slot3);
   if (!ws || ws.readyState !== WebSocket.OPEN) return;
   ws.send(JSON.stringify({ type: "ping" }));
 });
 
 slot4?.addEventListener("click", () => {
+  pulse(slot4);
   if (!ws || ws.readyState !== WebSocket.OPEN) return;
   if (!you) return;
   const sk = jobSkillFor(you.job);
@@ -788,6 +827,10 @@ canvas.addEventListener("click", (e) => {
 });
 
 window.addEventListener("keydown", (e) => {
+  const tag = (e.target && e.target.tagName) || "";
+  if (tag === "INPUT" || tag === "TEXTAREA" || e.metaKey || e.ctrlKey || e.altKey) return;
+  const isArrow = e.key === "ArrowUp" || e.key === "ArrowDown" || e.key === "ArrowLeft" || e.key === "ArrowRight";
+  if (isArrow) e.preventDefault();
   if (e.key === "w" || e.key === "ArrowUp") keyState.up = true;
   if (e.key === "s" || e.key === "ArrowDown") keyState.down = true;
   if (e.key === "a" || e.key === "ArrowLeft") keyState.left = true;
@@ -795,6 +838,10 @@ window.addEventListener("keydown", (e) => {
 });
 
 window.addEventListener("keyup", (e) => {
+  const tag = (e.target && e.target.tagName) || "";
+  if (tag === "INPUT" || tag === "TEXTAREA" || e.metaKey || e.ctrlKey || e.altKey) return;
+  const isArrow = e.key === "ArrowUp" || e.key === "ArrowDown" || e.key === "ArrowLeft" || e.key === "ArrowRight";
+  if (isArrow) e.preventDefault();
   if (e.key === "w" || e.key === "ArrowUp") keyState.up = false;
   if (e.key === "s" || e.key === "ArrowDown") keyState.down = false;
   if (e.key === "a" || e.key === "ArrowLeft") keyState.left = false;
@@ -835,7 +882,13 @@ function renderHeader() {
   }
 
   if (slot4Name) {
-    slot4Name.textContent = jobSkillFor(you.job).name;
+    const sk = jobSkillFor(you.job);
+    slot4Name.textContent = sk.name;
+    if (slot4) {
+      const sp = String(sk.spell || "").trim();
+      if (sp) slot4.dataset.spell = sp;
+      else delete slot4.dataset.spell;
+    }
   }
 
   if (killsEl) killsEl.textContent = `擊殺：${(you.meta && you.meta.kills) || 0}`;

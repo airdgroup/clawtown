@@ -950,36 +950,80 @@ function performCast(p, { spell, x, y, source }) {
     // Archer ranged shot: long range single target.
     const range = 260;
     const facing = String(p.facing || "down");
-    const inFront = (mm) => {
-      const dx = mm.x - p.x;
-      const dy = mm.y - p.y;
-      if (facing === "left") return dx < -6;
-      if (facing === "right") return dx > 6;
-      if (facing === "up") return dy < -6;
-      return dy > 6;
-    };
 
+    // Make it feel directional but forgiving: pick a target in a "corridor" in front.
+    const corridor = 90;
     let m = null;
-    let bestD2 = range * range;
+    let best = range + 1;
     for (const mm of monsters.values()) {
       if (!mm.alive) continue;
-      if (!inFront(mm)) continue;
-      const d2 = dist2(p.x, p.y, mm.x, mm.y);
-      if (d2 <= bestD2) {
-        bestD2 = d2;
+      const dx = mm.x - p.x;
+      const dy = mm.y - p.y;
+      if (facing === "left") {
+        if (dx >= -6) continue;
+        if (Math.abs(dy) > corridor) continue;
+        const dist = Math.abs(dx);
+        if (dist <= range && dist < best) {
+          best = dist;
+          m = mm;
+        }
+        continue;
+      }
+      if (facing === "right") {
+        if (dx <= 6) continue;
+        if (Math.abs(dy) > corridor) continue;
+        const dist = Math.abs(dx);
+        if (dist <= range && dist < best) {
+          best = dist;
+          m = mm;
+        }
+        continue;
+      }
+      if (facing === "up") {
+        if (dy >= -6) continue;
+        if (Math.abs(dx) > corridor) continue;
+        const dist = Math.abs(dy);
+        if (dist <= range && dist < best) {
+          best = dist;
+          m = mm;
+        }
+        continue;
+      }
+      // down
+      if (dy <= 6) continue;
+      if (Math.abs(dx) > corridor) continue;
+      const dist = Math.abs(dy);
+      if (dist <= range && dist < best) {
+        best = dist;
         m = mm;
       }
     }
 
-    if (!m) m = findNearestAliveMonster(p.x, p.y, range);
+    const end = {
+      x: facing === "left" ? p.x - range : facing === "right" ? p.x + range : p.x,
+      y: facing === "up" ? p.y - range : facing === "down" ? p.y + range : p.y,
+    };
+
     if (!m) {
-      pushFx({ type: "arrow", x: p.x, y: p.y, byPlayerId: p.id, payload: { miss: true, fromX: p.x, fromY: p.y, source } });
+      pushFx({
+        type: "arrow",
+        x: end.x,
+        y: end.y,
+        byPlayerId: p.id,
+        payload: { miss: true, fromX: p.x, fromY: p.y, toX: end.x, toY: end.y, facing, source },
+      });
       return { ok: false, reason: "no target" };
     }
 
     const dmg = Math.max(2, damageForPlayer(p));
     const out = applyDamage(p, m, dmg);
-    pushFx({ type: "arrow", x: m.x, y: m.y, byPlayerId: p.id, payload: { target: m.id, dmg: out.dealt, fromX: p.x, fromY: p.y, source } });
+    pushFx({
+      type: "arrow",
+      x: m.x,
+      y: m.y,
+      byPlayerId: p.id,
+      payload: { target: m.id, dmg: out.dealt, fromX: p.x, fromY: p.y, toX: m.x, toY: m.y, facing, source },
+    });
     return { ok: true, target: m.id, hp: out.hp, alive: out.alive };
   }
 
