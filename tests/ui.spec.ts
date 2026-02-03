@@ -281,6 +281,30 @@ test('Mobile landscape: panel drawer toggles with menu button', async ({ page })
   await expect(page.locator('#panel')).toHaveClass(/is-collapsed/);
 });
 
+test('Mobile landscape: page can scroll a bit (Safari chrome can collapse)', async ({ browser }) => {
+  const ctx = await browser.newContext({
+    viewport: { width: 1024, height: 600 },
+    isMobile: true,
+    hasTouch: true,
+  });
+  const page = await ctx.newPage();
+
+  await resetWorld(page);
+  await page.goto('/');
+  await waitForFonts(page);
+  await closeOnboarding(page);
+
+  // Ensure we actually have some scroll space.
+  const delta = await page.evaluate(() => {
+    const before = window.scrollY;
+    window.scrollTo(0, 60);
+    return Math.max(0, window.scrollY - before);
+  });
+  expect(delta).toBeGreaterThan(0);
+
+  await ctx.close();
+});
+
 test('Sorting Hat produces a result', async ({ page }) => {
   await resetWorld(page);
   await page.goto('/');

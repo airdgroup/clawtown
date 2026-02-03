@@ -875,10 +875,19 @@ window.addEventListener('resize', () => setTimeout(() => setViewportVars(), 80))
 function nudgeSafariChrome() {
   // iOS Safari hides the URL/tab chrome only when the page scrolls.
   // Our UI is mostly fixed, so we keep a tiny scroll shim and nudge once.
-  if (!isMobileLayout()) return;
+  const should = (() => {
+    if (isMobileLayout()) return true;
+    try {
+      return Boolean(window.matchMedia && window.matchMedia("(pointer: coarse) and (hover: none) and (orientation: landscape) and (max-width: 1400px)").matches);
+    } catch {
+      return false;
+    }
+  })();
+  if (!should) return;
   try {
     if (window.scrollY <= 0) {
-      window.scrollTo(0, 1);
+      // A slightly larger nudge helps iPad Safari collapse the top chrome.
+      window.scrollTo(0, 48);
     }
   } catch {
     // ignore
@@ -893,7 +902,24 @@ window.addEventListener("resize", () => setTimeout(() => nudgeSafariChrome(), 12
 function installNoDoubleTapZoom() {
   // iOS Safari can interpret rapid taps as a zoom gesture (especially on buttons).
   // We already set viewport user-scalable=no, but we keep a small guard for older behavior.
+  let lastTouchStart = 0;
   let lastTouchEnd = 0;
+  document.addEventListener(
+    'touchstart',
+    (e) => {
+      if (!isMobileLayout()) return;
+      const now = Date.now();
+      if (now - lastTouchStart <= 320) {
+        const t = e.target;
+        const hot = t && t.closest && t.closest('.slot, #mobileMenu, #game, .joystick');
+        if (hot) {
+          e.preventDefault();
+        }
+      }
+      lastTouchStart = now;
+    },
+    { passive: false, capture: true }
+  );
   document.addEventListener(
     'touchend',
     (e) => {

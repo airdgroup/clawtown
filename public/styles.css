@@ -70,6 +70,20 @@ body::before {
   height: 0px;
 }
 
+/* iPad/iPhone landscape Safari: if the page has no scroll, the tab/address chrome won't collapse.
+   Provide a small scroll area on coarse pointer devices (touch) even when the layout is "desktop". */
+@media (pointer: coarse) and (hover: none) and (orientation: landscape) and (max-width: 1400px) {
+  body {
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    min-height: calc(var(--ct-vh, 1vh) * 100);
+  }
+
+  #scrollShim {
+    height: 88px;
+  }
+}
+
 header {
   display: flex;
   align-items: center;
@@ -286,6 +300,13 @@ main {
   cursor: pointer;
   position: relative;
   z-index: 1;
+}
+
+/* iOS Safari: hard-disable gesture zoom on hotbar buttons (double-tap zoom can still sneak through). */
+@media (pointer: coarse) and (hover: none) {
+  .slot {
+    touch-action: none;
+  }
 }
 
 .slot:hover {
