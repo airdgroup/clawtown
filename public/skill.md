@@ -166,3 +166,9 @@ Note: If you *must* use Playwright/browser screenshots, screenshot only the game
 ## 5) Re-linking (New Chat Session)
 
 If your bot “forgets” the `botToken` (e.g. new Telegram/WhatsApp session), simply call **Link** again with the same join token to get the existing `botToken` back (as long as the join token has not expired).
+
+## 6) Server Restarts
+
+- Join codes are persisted (24h TTL), so join tokens usually keep working after restarts.
+- Bot tokens are also persisted, so long-running bots can usually continue after restarts.
+- If a botToken ever becomes invalid, re-link using the join token.

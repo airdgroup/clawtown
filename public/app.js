@@ -172,6 +172,10 @@ const moreMenuItems = Array.from(document.querySelectorAll(".ui-more-item"));
 const tabButtons = Array.from(document.querySelectorAll(".ui-tab"));
 const tabPanels = Array.from(document.querySelectorAll(".tab"));
 
+const badgeChatEl = document.getElementById("badgeChat");
+const badgeBoardEl = document.getElementById("badgeBoard");
+const badgeBoardMenuEl = document.getElementById("badgeBoardMenu");
+
 const LANG_KEY = "clawtown.lang";
 let lang = (() => {
   try {
@@ -181,6 +185,52 @@ let lang = (() => {
     return "zh";
   }
 })();
+
+const UNREAD_KEY = "clawtown.unread.v1";
+let unread = (() => {
+  try {
+    const v = JSON.parse(localStorage.getItem(UNREAD_KEY) || "null");
+    if (v && typeof v === "object") {
+      return {
+        chatSeenAt: Number(v.chatSeenAt || 0) || 0,
+        boardSeenAt: Number(v.boardSeenAt || 0) || 0,
+        chatCount: Math.max(0, Math.floor(Number(v.chatCount || 0) || 0)),
+        boardCount: Math.max(0, Math.floor(Number(v.boardCount || 0) || 0)),
+      };
+    }
+  } catch {
+    // ignore
+  }
+  return { chatSeenAt: 0, boardSeenAt: 0, chatCount: 0, boardCount: 0 };
+})();
+
+let activeTabKey = "character";
+
+function persistUnread() {
+  try {
+    localStorage.setItem(UNREAD_KEY, JSON.stringify(unread));
+  } catch {
+    // ignore
+  }
+}
+
+function renderBadges() {
+  const show = (el, n) => {
+    if (!el) return;
+    const v = Math.max(0, Math.floor(Number(n || 0) || 0));
+    if (v <= 0) {
+      el.hidden = true;
+      return;
+    }
+    el.textContent = v > 99 ? "99+" : String(v);
+    el.hidden = false;
+  };
+  show(badgeChatEl, unread.chatCount);
+  show(badgeBoardEl, unread.boardCount);
+  show(badgeBoardMenuEl, unread.boardCount);
+}
+
+renderBadges();
 
 const CHAT_FILTER_KEY = "clawtown.chat.filter"; // "all" | "people" | "system"
 let chatFilter = (() => {
@@ -651,6 +701,8 @@ function pulse(el) {
 }
 
 function openTab(tabKey) {
+  activeTabKey = String(tabKey || "").trim();
+
   for (const b of tabButtons) {
     const is = b.dataset.tab === tabKey;
     b.classList.toggle("is-active", is);
@@ -671,6 +723,20 @@ function openTab(tabKey) {
 
   if (tabKey === "hat") {
     hatStartIfNeeded();
+  }
+
+  // Mark seen when user visits the tab.
+  if (tabKey === "chat") {
+    unread.chatCount = 0;
+    unread.chatSeenAt = Math.max(unread.chatSeenAt || 0, maxChatCreatedAt((state && state.chats) || []));
+    persistUnread();
+    renderBadges();
+  }
+  if (tabKey === "board") {
+    unread.boardCount = 0;
+    unread.boardSeenAt = Math.max(unread.boardSeenAt || 0, maxCreatedAt((state && state.board) || []));
+    persistUnread();
+    renderBadges();
   }
 
   coach?.noteOpenTab?.(tabKey);
@@ -3118,6 +3184,40 @@ function renderFeed(el, items, kind) {
   el.innerHTML = html;
 }
 
+function maxCreatedAt(items) {
+  const list = Array.isArray(items) ? items : [];
+  let best = 0;
+  for (const it of list) {
+    const t = Date.parse(String(it && it.createdAt));
+    if (Number.isFinite(t)) best = Math.max(best, t);
+  }
+  return best;
+}
+
+function maxChatCreatedAt(items) {
+  // For unread purposes, ignore system spam. Count only "chat" kind.
+  const list = Array.isArray(items) ? items : [];
+  let best = 0;
+  for (const it of list) {
+    if (!it || it.kind !== "chat") continue;
+    const t = Date.parse(String(it.createdAt));
+    if (Number.isFinite(t)) best = Math.max(best, t);
+  }
+  return best;
+}
+
+function computeChatUnreadCount(items, sinceMs) {
+  const list = Array.isArray(items) ? items : [];
+  let n = 0;
+  for (const it of list) {
+    if (!it || it.kind !== "chat") continue;
+    const t = Date.parse(String(it.createdAt));
+    if (!Number.isFinite(t)) continue;
+    if (t > sinceMs) n++;
+  }
+  return n;
+}
+
 function refreshChatFilterUI() {
   const set = (btn, active) => {
     if (!btn) return;
@@ -3285,6 +3385,40 @@ function connect() {
       renderChat();
       renderBotThoughts();
       refreshHat();
+      try {
+        // Unread counts: compute against last seen timestamps. No accumulation to avoid flapping.
+        const chatMax = maxChatCreatedAt(state.chats || []);
+        const boardMax = maxCreatedAt(state.board || []);
+
+        // First boot: don't show unread badges for the initial snapshot.
+        if (!unread.chatSeenAt) unread.chatSeenAt = chatMax;
+        if (!unread.boardSeenAt) unread.boardSeenAt = boardMax;
+
+        if (activeTabKey !== "chat") {
+          unread.chatCount = Math.min(999, computeChatUnreadCount(state.chats || [], unread.chatSeenAt || 0));
+        } else {
+          unread.chatCount = 0;
+          unread.chatSeenAt = Math.max(unread.chatSeenAt || 0, chatMax);
+        }
+
+        if (activeTabKey !== "board") {
+          const since = unread.boardSeenAt || 0;
+          let n = 0;
+          for (const it of state.board || []) {
+            const t = Date.parse(String(it && it.createdAt));
+            if (Number.isFinite(t) && t > since) n++;
+          }
+          unread.boardCount = Math.min(999, n);
+        } else {
+          unread.boardCount = 0;
+          unread.boardSeenAt = Math.max(unread.boardSeenAt || 0, boardMax);
+        }
+
+        persistUnread();
+        renderBadges();
+      } catch {
+        // ignore
+      }
       coach?.onState?.(you, state, recentFx);
       return;
     }
@@ -3325,6 +3459,33 @@ function connect() {
       renderChat();
       renderBotThoughts();
       draw();
+      try {
+        const chatMax = maxChatCreatedAt(state.chats || []);
+        const boardMax = maxCreatedAt(state.board || []);
+        if (activeTabKey !== "chat") {
+          unread.chatCount = Math.min(999, computeChatUnreadCount(state.chats || [], unread.chatSeenAt || 0));
+        } else {
+          unread.chatCount = 0;
+          unread.chatSeenAt = Math.max(unread.chatSeenAt || 0, chatMax);
+        }
+        if (activeTabKey !== "board") {
+          // Count board unread (simple count since timestamp).
+          const since = unread.boardSeenAt || 0;
+          let n = 0;
+          for (const it of state.board || []) {
+            const t = Date.parse(String(it && it.createdAt));
+            if (Number.isFinite(t) && t > since) n++;
+          }
+          unread.boardCount = Math.min(999, n);
+        } else {
+          unread.boardCount = 0;
+          unread.boardSeenAt = Math.max(unread.boardSeenAt || 0, boardMax);
+        }
+        persistUnread();
+        renderBadges();
+      } catch {
+        // ignore
+      }
       coach?.onState?.(you, state, recentFx);
       return;
     }

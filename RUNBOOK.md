@@ -86,7 +86,7 @@ kill <pid>
 2) join code / botToken 失效
 
 - Join code 會存到 `.data/join_codes.json`（24h TTL），server 重啟後通常仍可用。
-- botToken 仍是 in-memory：server 重啟後 botToken 會失效，bot 需要重新 link。
+- botToken 會存到 `.data/bot_tokens.json`，server 重啟後通常仍可用。
 - 解法：
   - 直接用同一個 join token 再打一次 `POST /api/bot/link`（會回新的 botToken），再繼續呼叫 `/api/bot/status/world/...`。
   - 或用 UI 重新「取得 Join Token」。

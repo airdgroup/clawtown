@@ -21,6 +21,7 @@ const DATA_DIR = process.env.CT_DATA_DIR || path.join(__dirname, "..", ".data");
 const PLAYER_DATA_DIR = path.join(DATA_DIR, "players");
 const AVATAR_DATA_DIR = path.join(DATA_DIR, "avatars");
 const JOIN_CODES_DATA_PATH = path.join(DATA_DIR, "join_codes.json");
+const BOT_TOKENS_DATA_PATH = path.join(DATA_DIR, "bot_tokens.json");
 try {
   fs.mkdirSync(PLAYER_DATA_DIR, { recursive: true });
 } catch {
@@ -75,6 +76,21 @@ function persistJoinCodes() {
   }
 }
 
+function persistBotTokens() {
+  try {
+    const out = [];
+    for (const [token, playerId] of botTokens.entries()) {
+      const t = String(token || "").trim();
+      const pid = String(playerId || "").trim();
+      if (!t || !pid) continue;
+      out.push({ token: t, playerId: pid });
+    }
+    writeJsonAtomic(BOT_TOKENS_DATA_PATH, { version: 1, savedAt: new Date().toISOString(), tokens: out });
+  } catch {
+    // ignore
+  }
+}
+
 function exportPlayerProgress(p) {
   return {
     version: 2,
@@ -99,6 +115,7 @@ function exportPlayerProgress(p) {
     botThought: p.botThought && typeof p.botThought === 'object' ? { text: safeText(p.botThought.text, 180), at: Number(p.botThought.at || 0) || 0 } : null,
     botEvents: Array.isArray(p.botEvents) ? p.botEvents.slice(-120) : [],
     botEventSeq: Math.max(0, Math.floor(Number(p.botEventSeq) || 0)),
+    botToken: p.botToken ? String(p.botToken) : null,
   };
 }
 
@@ -167,6 +184,7 @@ function importPlayerProgress(p, data) {
         .filter((e) => e.id > 0 && e.at > 0 && e.text);
     }
     if (Number.isFinite(Number(data.botEventSeq))) p.botEventSeq = Math.max(0, Math.floor(Number(data.botEventSeq) || 0));
+    if (typeof data.botToken === 'string') p.botToken = String(data.botToken || '').trim();
   } catch {
     // ignore
   }
@@ -830,26 +848,47 @@ function pushBotEvent(p, { kind, text, data, important } = {}) {
 
 // Join codes are meant to be re-usable across chat sessions and should survive server restarts.
 // We keep them in-memory for speed and persist the small map to disk.
-try {
-  const saved = readJsonSafe(JOIN_CODES_DATA_PATH);
-  const list = Array.isArray(saved?.codes) ? saved.codes : [];
-  for (const row of list) {
-    const code = String(row?.code || "").trim().toUpperCase();
-    const playerId = String(row?.playerId || "").trim();
-    const expiresAt = Number(row?.expiresAt || 0);
-    const createdAt = Number(row?.createdAt || 0);
-    if (!code || !playerId || !Number.isFinite(expiresAt)) continue;
-    if (nowMs() > expiresAt) continue;
-    const approxCreatedAt = expiresAt - 24 * 60 * 60 * 1000; // v2 introduced createdAt; v1 is assumed 24h TTL
-    joinCodes.set(code, {
-      playerId,
-      expiresAt,
-      createdAt: Number.isFinite(createdAt) && createdAt > 0 ? createdAt : approxCreatedAt,
-    });
+function loadJoinCodesFromDisk() {
+  try {
+    const saved = readJsonSafe(JOIN_CODES_DATA_PATH);
+    const list = Array.isArray(saved?.codes) ? saved.codes : [];
+    for (const row of list) {
+      const code = String(row?.code || "").trim().toUpperCase();
+      const playerId = String(row?.playerId || "").trim();
+      const expiresAt = Number(row?.expiresAt || 0);
+      const createdAt = Number(row?.createdAt || 0);
+      if (!code || !playerId || !Number.isFinite(expiresAt)) continue;
+      if (nowMs() > expiresAt) continue;
+      const approxCreatedAt = expiresAt - 24 * 60 * 60 * 1000; // v2 introduced createdAt; v1 is assumed 24h TTL
+      joinCodes.set(code, {
+        playerId,
+        expiresAt,
+        createdAt: Number.isFinite(createdAt) && createdAt > 0 ? createdAt : approxCreatedAt,
+      });
+    }
+  } catch {
+    // ignore
   }
-} catch {
-  // ignore
 }
+
+function loadBotTokensFromDisk() {
+  try {
+    const saved = readJsonSafe(BOT_TOKENS_DATA_PATH);
+    const list = Array.isArray(saved?.tokens) ? saved.tokens : [];
+    for (const row of list) {
+      const token = String(row?.token || "").trim();
+      const playerId = String(row?.playerId || "").trim();
+      if (!token || !playerId) continue;
+      botTokens.set(token, playerId);
+    }
+  } catch {
+    // ignore
+  }
+}
+
+// Load persisted state at boot.
+loadJoinCodesFromDisk();
+loadBotTokensFromDisk();
 
 let emitFx = () => {};
 
@@ -921,6 +960,12 @@ function getOrCreatePlayer(playerId, name) {
       if (!p.jobSkill) p.jobSkill = defaultJobSkillForJob(p.job);
       if (!p.signatureSpell) p.signatureSpell = { name: "", tagline: "", effect: "spark" };
       ensureBotEventState(p);
+      // If this player has a persisted botToken, register it so existing bots keep working
+      // even when the bot is the first client after a restart.
+      if (p.botToken && typeof p.botToken === "string") {
+        const t = String(p.botToken).trim();
+        if (t) botTokens.set(t, p.id);
+      }
     }
 
     ensurePlayerVitals(p, { gainHpFromMaxHpIncrease: false });
@@ -1572,7 +1617,8 @@ function authBot(req) {
   const token = m[1].trim();
   const playerId = botTokens.get(token);
   if (!playerId) return null;
-  const p = players.get(playerId);
+  // Allow bot-only sessions (no browser) by lazily loading the player from disk.
+  const p = players.get(playerId) || getOrCreatePlayer(playerId, null);
   if (!p) return null;
   p.externalBotLastSeenAt = nowMs();
   return { token, player: p };
@@ -1682,6 +1728,11 @@ if (String(process.env.CT_TEST || "").trim() === "1") {
     } catch {
       // ignore
     }
+    try {
+      if (fs.existsSync(BOT_TOKENS_DATA_PATH)) fs.unlinkSync(BOT_TOKENS_DATA_PATH);
+    } catch {
+      // ignore
+    }
 
     spawnInitialMonsters();
     res.json({ ok: true });
@@ -1702,10 +1753,14 @@ if (String(process.env.CT_TEST || "").trim() === "1") {
   app.post("/api/debug/restart-sim", (_req, res) => {
     // Simulate a server restart: persist then clear in-memory state (but keep player data on disk).
     for (const p of players.values()) persistPlayerIfNeeded(p, true);
+    persistJoinCodes();
+    persistBotTokens();
     players.clear();
     botTokens.clear();
     joinCodes.clear();
-    persistJoinCodes();
+    // Reload persisted maps to mimic a cold boot.
+    loadJoinCodesFromDisk();
+    loadBotTokensFromDisk();
     monsters.clear();
     drops.clear();
     boardPosts.length = 0;
@@ -1947,22 +2002,35 @@ app.post("/api/bot/link", (req, res) => {
     return res.status(410).json({ ok: false, error: "joinCode expired" });
   }
 
-  const p = players.get(rec.playerId);
+  const p = players.get(rec.playerId) || getOrCreatePlayer(rec.playerId, null);
   if (!p) return res.status(404).json({ ok: false, error: "player missing" });
 
   // If this player already has a botToken, return it to allow “re-link” from a new chat session
   // without breaking the currently running bot loop.
   let botToken = null;
-  for (const [t, pid] of botTokens.entries()) {
-    if (pid === p.id) {
-      botToken = t;
-      break;
+  try {
+    const persisted = p.botToken && typeof p.botToken === "string" ? String(p.botToken).trim() : "";
+    if (persisted) {
+      botToken = persisted;
+      botTokens.set(botToken, p.id);
     }
+  } catch {
+    // ignore
   }
   if (!botToken) {
-    botToken = randomToken("ctbot");
-    botTokens.set(botToken, p.id);
+    for (const [t, pid] of botTokens.entries()) {
+      if (pid === p.id) {
+        botToken = t;
+        break;
+      }
+    }
   }
+  if (!botToken) botToken = randomToken("ctbot");
+  botTokens.set(botToken, p.id);
+  p.botToken = botToken;
+  markDirty(p);
+  persistPlayerIfNeeded(p, true);
+  persistBotTokens();
   p.linkedBot = true;
 
   pushChat({

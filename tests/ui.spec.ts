@@ -1259,6 +1259,49 @@ test('Stats: allocating STR increases ATK and persists (CT_TEST)', async ({ page
   await expect(page.locator('#statStrVal')).toContainText(String(strBefore + 1));
 });
 
+test('Persistence: botToken + join token survive restart (CT_TEST)', async ({ page }) => {
+  await resetWorld(page);
+  await page.goto('/');
+  await waitForFonts(page);
+  await closeOnboarding(page);
+
+  const playerId = await page.evaluate(() => {
+    try {
+      return JSON.parse(localStorage.getItem('clawtown.player') || 'null')?.playerId || null;
+    } catch {
+      return null;
+    }
+  });
+  expect(playerId).toBeTruthy();
+
+  const join = await page.request.post('/api/join-codes', { data: { playerId } });
+  const joinData = await join.json();
+  expect(joinData.ok).toBeTruthy();
+  expect(joinData.joinCode).toBeTruthy();
+
+  const link1 = await page.request.post('/api/bot/link', { data: { joinCode: joinData.joinCode } });
+  const linkData1 = await link1.json();
+  expect(linkData1.ok).toBeTruthy();
+  expect(linkData1.botToken).toBeTruthy();
+
+  const status1 = await (await page.request.get('/api/bot/status', { headers: { Authorization: `Bearer ${linkData1.botToken}` } })).json();
+  expect(status1.ok).toBeTruthy();
+  expect(status1.you?.id).toBe(playerId);
+
+  // simulate restart (clears in-memory maps, reloads persisted join codes + bot tokens)
+  await page.request.post('/api/debug/restart-sim');
+
+  const status2 = await (await page.request.get('/api/bot/status', { headers: { Authorization: `Bearer ${linkData1.botToken}` } })).json();
+  expect(status2.ok).toBeTruthy();
+  expect(status2.you?.id).toBe(playerId);
+
+  // join token should still allow re-linking (even if no browser is connected after restart)
+  const link2 = await page.request.post('/api/bot/link', { data: { joinCode: joinData.joinCode } });
+  const linkData2 = await link2.json();
+  expect(linkData2.ok).toBeTruthy();
+  expect(linkData2.botToken).toBe(linkData1.botToken);
+});
+
 test('H-Mode: linked bot autopilot moves and fights', async ({ page }) => {
   await resetWorld(page);
   await page.goto('/');

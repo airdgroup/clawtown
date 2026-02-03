@@ -1119,6 +1119,24 @@ textarea {
   max-width: 360px;
 }
 
+.tab-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 6px;
+  margin-left: 8px;
+  border-radius: 999px;
+  background: rgba(251, 191, 36, 0.92);
+  color: rgba(19, 27, 42, 0.95);
+  border: 1px solid rgba(19, 27, 42, 0.18);
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1;
+  box-shadow: 0 10px 22px rgba(9, 19, 36, 0.14);
+}
+
 .pill {
   display: inline-flex;
   align-items: center;

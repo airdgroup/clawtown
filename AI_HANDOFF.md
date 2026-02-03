@@ -70,7 +70,8 @@ Bot control model
 Important behavior
 
 - Join codes are persisted to disk (`.data/join_codes.json`) and survive restarts (24h TTL).
-- Bot tokens are still in-memory: server restart invalidates bot tokens; bots should re-link via join token.
+- Bot tokens are persisted to disk (`.data/bot_tokens.json`) and survive restarts.
+- If a bot token ever becomes invalid (e.g. rotation), bots should re-link via join token.
 - Fallback autopilot exists: if a player is linked + in H-Mode but no external bot is polling recently, the server will move/fight and emit `[BOT]` lines. If an external bot is active, autopilot stays off.
 
 Persistence
