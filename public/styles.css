@@ -941,6 +941,8 @@ main {
     border-radius: 0;
     border: 0;
     box-shadow: none;
+    /* Allow vertical panning so iOS Safari can collapse its chrome even when the map is full-screen. */
+    touch-action: pan-y;
   }
 
   .minimap {
