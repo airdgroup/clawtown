@@ -1391,6 +1391,50 @@ test('H-Mode: linked bot autopilot moves and fights', async ({ page }) => {
   await expect(page.locator('#botLog')).toContainText('[BOT]');
 });
 
+test('H-Mode: observer polling (events/status) does not disable autopilot', async ({ page }) => {
+  await resetWorld(page);
+  await page.goto('/');
+  await waitForFonts(page);
+  await closeOnboarding(page);
+
+  const playerId = await page.evaluate(() => {
+    try {
+      return JSON.parse(localStorage.getItem('clawtown.player') || 'null')?.playerId || null;
+    } catch {
+      return null;
+    }
+  });
+  expect(playerId).toBeTruthy();
+
+  await page.request.post('/api/debug/teleport', { data: { playerId, x: 520, y: 300 } });
+  await page.request.post('/api/debug/spawn-monster', { data: { id: 'm_obs_slime', kind: 'slime', name: 'Observer Poring', x: 520, y: 300, maxHp: 1, hp: 1 } });
+
+  const join = await page.request.post('/api/join-codes', { data: { playerId } });
+  const joinData = await join.json();
+  expect(joinData.ok).toBeTruthy();
+  const link = await page.request.post('/api/bot/link', { data: { joinCode: joinData.joinCode } });
+  const linkData = await link.json();
+  expect(linkData.ok).toBeTruthy();
+  expect(linkData.botToken).toBeTruthy();
+
+  const headers = { Authorization: `Bearer ${linkData.botToken}` };
+
+  // Switch to H-Mode.
+  await page.locator('#modeAgent').click();
+
+  // While autopilot is running, poll read-only endpoints — this should NOT disable autopilot.
+  const poller = (async () => {
+    for (let i = 0; i < 6; i++) {
+      await page.request.get(`/api/bot/events?cursor=0&limit=2`, { headers });
+      await page.request.get(`/api/bot/status`, { headers });
+      await page.waitForTimeout(600);
+    }
+  })();
+
+  await expect(page.locator('#kills')).toContainText('1', { timeout: 12_000 });
+  await poller;
+});
+
 test('Two players can chat (local multiplayer)', async ({ browser }) => {
   const ctxA = await browser.newContext({ viewport: { width: 1200, height: 780 } });
   const ctxB = await browser.newContext({ viewport: { width: 1200, height: 780 } });
