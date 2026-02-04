@@ -1522,6 +1522,31 @@ function pushChat({ kind, text, from, toPlayerId }) {
   };
   chats.push(chat);
   while (chats.length > 100) chats.shift();
+
+  // Bot-facing UX: convert @mentions into important bot events.
+  try {
+    if (chat.kind === "chat") {
+      const raw = String(chat.text || "");
+      const lower = raw.toLowerCase();
+      const fromId = String(chat.from?.id || "");
+      const snippet = raw.length > 120 ? `${raw.slice(0, 117)}...` : raw;
+      for (const p of players.values()) {
+        if (!p || !p.id || p.id === fromId) continue;
+        const name = String(p.name || "").trim();
+        if (name.length < 2) continue;
+        if (!lower.includes(`@${name}`.toLowerCase())) continue;
+        pushBotEvent(p, {
+          kind: "mention",
+          text: `Mention from ${chat.from.name}: ${snippet}`,
+          important: true,
+          data: { from: chat.from, text: snippet },
+        });
+      }
+    }
+  } catch {
+    // ignore
+  }
+
   return chat;
 }
 
@@ -1623,6 +1648,38 @@ function authBot(req) {
   return { token, player: p };
 }
 
+function ensureBotRateState(p) {
+  if (!p) return null;
+  if (!p._botRate || typeof p._botRate !== "object") p._botRate = {};
+  return p._botRate;
+}
+
+function rateLimitBot(p, key, { intervalMs, burst = 1 } = {}) {
+  if (!p) return { ok: false, retryInMs: 1000 };
+  const k = String(key || "default");
+  const interval = Math.max(20, Math.floor(Number(intervalMs) || 0));
+  const cap = Math.max(1, Math.floor(Number(burst) || 1));
+  const now = nowMs();
+  const store = ensureBotRateState(p);
+  const st = store[k] && typeof store[k] === "object" ? store[k] : { tokens: cap, lastAt: now };
+  const lastAt = Math.max(0, Math.floor(Number(st.lastAt) || 0));
+  const prevTokens = Number(st.tokens);
+  const tokens0 = Number.isFinite(prevTokens) ? prevTokens : cap;
+
+  const dt = Math.max(0, now - lastAt);
+  const refill = interval > 0 ? dt / interval : cap;
+  const tokens = Math.min(cap, tokens0 + refill);
+
+  if (tokens < 1) {
+    const retryInMs = Math.max(50, Math.ceil((1 - tokens) * interval));
+    store[k] = { tokens, lastAt: now };
+    return { ok: false, retryInMs };
+  }
+
+  store[k] = { tokens: tokens - 1, lastAt: now };
+  return { ok: true };
+}
+
 function markBotSeen(p) {
   if (!p) return;
   p.externalBotLastSeenAt = nowMs();
@@ -1643,6 +1700,39 @@ function canAutopilot(p) {
   // If an external bot is actively issuing actions recently, assume it is in control.
   // Read-only polling (events/status/map) should NOT disable server-side autopilot.
   return nowMs() - lastAction > 8000;
+}
+
+function maybeProximityEvents(p) {
+  if (!p || !p.id) return;
+  const now = nowMs();
+  const r = 260;
+  const r2 = r * r;
+
+  if (!p._nearbySeen || typeof p._nearbySeen !== "object") p._nearbySeen = {};
+  if (!Number.isFinite(Number(p._nearbyLastEmitAt))) p._nearbyLastEmitAt = 0;
+
+  const newly = [];
+  for (const o of players.values()) {
+    if (!o || !o.id || o.id === p.id) continue;
+    if (dist2(p.x, p.y, o.x, o.y) > r2) continue;
+    const prev = Math.max(0, Math.floor(Number(p._nearbySeen[o.id] || 0)));
+    if (now - prev < 10 * 60_000) continue; // don't spam the same player repeatedly
+    p._nearbySeen[o.id] = now;
+    newly.push(String(o.name || "Someone").trim() || "Someone");
+  }
+
+  if (newly.length === 0) return;
+  if (now - Number(p._nearbyLastEmitAt || 0) < 60_000) return;
+  p._nearbyLastEmitAt = now;
+
+  const names = newly.slice(0, 3);
+  const more = newly.length > 3 ? ` +${newly.length - 3}` : "";
+  pushBotEvent(p, {
+    kind: "nearby",
+    text: `Met ${names.join(", ")}${more}.`,
+    important: true,
+    data: { names: newly.slice(0, 10) },
+  });
 }
 
 function maybeAutopilot(p) {
@@ -2075,6 +2165,8 @@ app.get("/api/bot/status", (req, res) => {
   const auth = authBot(req);
   if (!auth) return res.status(401).json({ ok: false, error: "unauthorized" });
   const p = auth.player;
+  const rl = rateLimitBot(p, "status", { intervalMs: 250, burst: 6 });
+  if (!rl.ok) return res.status(429).json({ ok: false, error: "rate limited", retryInMs: rl.retryInMs });
   markBotSeen(p);
 
   const r2 = Math.pow(6 * WORLD.tileSize, 2);
@@ -2099,6 +2191,8 @@ app.get("/api/bot/world", (req, res) => {
   const auth = authBot(req);
   if (!auth) return res.status(401).json({ ok: false, error: "unauthorized" });
   const p = auth.player;
+  const rl = rateLimitBot(p, "world", { intervalMs: 250, burst: 6 });
+  if (!rl.ok) return res.status(429).json({ ok: false, error: "rate limited", retryInMs: rl.retryInMs });
   markBotSeen(p);
 
   const nearbyR2 = Math.pow(6 * WORLD.tileSize, 2);
@@ -2139,33 +2233,54 @@ app.get("/api/bot/world", (req, res) => {
   res.json({ ok: true, snapshot });
 });
 
+let mapPngInFlight = 0;
+const MAP_PNG_MAX_INFLIGHT = 2;
+
 app.get("/api/bot/minimap.png", (req, res) => {
   const auth = authBot(req);
   if (!auth) return res.status(401).end();
   const p = auth.player;
+  const rl = rateLimitBot(p, "minimap_png", { intervalMs: 1800, burst: 1 });
+  if (!rl.ok) return res.status(429).end();
   markBotSeen(p);
   const snapshot = currentState();
-  const buf = renderMinimapPng({ you: p, snapshot, w: req.query?.w, h: req.query?.h });
-  res.setHeader("Content-Type", "image/png");
-  res.setHeader("Cache-Control", "no-store");
-  res.end(buf);
+  if (mapPngInFlight >= MAP_PNG_MAX_INFLIGHT) return res.status(503).end();
+  mapPngInFlight++;
+  try {
+    const buf = renderMinimapPng({ you: p, snapshot, w: req.query?.w, h: req.query?.h });
+    res.setHeader("Content-Type", "image/png");
+    res.setHeader("Cache-Control", "no-store");
+    res.end(buf);
+  } finally {
+    mapPngInFlight = Math.max(0, mapPngInFlight - 1);
+  }
 });
 
 app.get("/api/bot/map.png", (req, res) => {
   const auth = authBot(req);
   if (!auth) return res.status(401).end();
   const p = auth.player;
+  const rl = rateLimitBot(p, "map_png", { intervalMs: 2400, burst: 1 });
+  if (!rl.ok) return res.status(429).end();
   markBotSeen(p);
   const snapshot = currentState();
-  const buf = renderMapPng({ you: p, snapshot, w: req.query?.w, h: req.query?.h });
-  res.setHeader("Content-Type", "image/png");
-  res.setHeader("Cache-Control", "no-store");
-  res.end(buf);
+  if (mapPngInFlight >= MAP_PNG_MAX_INFLIGHT) return res.status(503).end();
+  mapPngInFlight++;
+  try {
+    const buf = renderMapPng({ you: p, snapshot, w: req.query?.w, h: req.query?.h });
+    res.setHeader("Content-Type", "image/png");
+    res.setHeader("Cache-Control", "no-store");
+    res.end(buf);
+  } finally {
+    mapPngInFlight = Math.max(0, mapPngInFlight - 1);
+  }
 });
 
 app.post("/api/bot/mode", (req, res) => {
   const auth = authBot(req);
   if (!auth) return res.status(401).json({ ok: false, error: "unauthorized" });
+  const rl = rateLimitBot(auth.player, "mode", { intervalMs: 700, burst: 2 });
+  if (!rl.ok) return res.status(429).json({ ok: false, error: "rate limited", retryInMs: rl.retryInMs });
   const mode = String(req.body?.mode || "").toLowerCase();
   if (!['manual', 'agent'].includes(mode)) return res.status(400).json({ ok: false, error: "invalid mode" });
   auth.player.mode = mode;
@@ -2242,6 +2357,8 @@ app.post("/api/bot/interrupt", (req, res) => {
 app.post("/api/bot/goal", (req, res) => {
   const auth = authBot(req);
   if (!auth) return res.status(401).json({ ok: false, error: "unauthorized" });
+  const rl = rateLimitBot(auth.player, "goal", { intervalMs: 220, burst: 6 });
+  if (!rl.ok) return res.status(429).json({ ok: false, error: "rate limited", retryInMs: rl.retryInMs });
   markBotAction(auth.player);
   const x = Number(req.body?.x);
   const y = Number(req.body?.y);
@@ -2256,6 +2373,8 @@ app.post("/api/bot/goal", (req, res) => {
 app.post("/api/bot/intent", (req, res) => {
   const auth = authBot(req);
   if (!auth) return res.status(401).json({ ok: false, error: "unauthorized" });
+  const rl = rateLimitBot(auth.player, "intent", { intervalMs: 500, burst: 3 });
+  if (!rl.ok) return res.status(429).json({ ok: false, error: "rate limited", retryInMs: rl.retryInMs });
   markBotAction(auth.player);
   auth.player.intent = safeText(req.body?.text || "", 200);
   res.json({ ok: true });
@@ -2265,6 +2384,8 @@ app.post("/api/bot/chat", (req, res) => {
   const auth = authBot(req);
   if (!auth) return res.status(401).json({ ok: false, error: "unauthorized" });
   const p = auth.player;
+  const rl = rateLimitBot(p, "chat", { intervalMs: 1200, burst: 2 });
+  if (!rl.ok) return res.status(429).json({ ok: false, error: "rate limited", retryInMs: rl.retryInMs });
   const t = nowMs();
   if (t - p.lastChatAt < 1200) return res.status(429).json({ ok: false, error: "rate limited" });
   p.lastChatAt = t;
@@ -2291,6 +2412,8 @@ app.post("/api/bot/thought", (req, res) => {
   if (!auth) return res.status(401).json({ ok: false, error: "unauthorized" });
   const p = auth.player;
   const t = nowMs();
+  const rl = rateLimitBot(p, "thought", { intervalMs: 2500, burst: 2 });
+  if (!rl.ok) return res.status(429).json({ ok: false, error: "rate limited", retryInMs: rl.retryInMs });
   markBotAction(p);
 
   const text = safeText(String(req.body?.text || ""), 180);
@@ -2308,6 +2431,8 @@ app.get("/api/bot/events", (req, res) => {
   const auth = authBot(req);
   if (!auth) return res.status(401).json({ ok: false, error: "unauthorized" });
   const p = auth.player;
+  const rl = rateLimitBot(p, "events", { intervalMs: 700, burst: 3 });
+  if (!rl.ok) return res.status(429).json({ ok: false, error: "rate limited", retryInMs: rl.retryInMs });
   markBotSeen(p);
   ensureBotEventState(p);
 
@@ -2351,6 +2476,8 @@ app.post("/api/bot/cast", (req, res) => {
   const auth = authBot(req);
   if (!auth) return res.status(401).json({ ok: false, error: "unauthorized" });
   const p = auth.player;
+  const rl = rateLimitBot(p, "cast", { intervalMs: 220, burst: 6 });
+  if (!rl.ok) return res.status(429).json({ ok: false, error: "rate limited", retryInMs: rl.retryInMs });
   markBotAction(p);
   const spell = req.body?.spell;
   const x = req.body?.x;
@@ -2824,6 +2951,9 @@ function tick() {
 
     // auto pick up loot when nearby
     tryAutoPickup(p);
+
+    // social dopamine: meeting others becomes a bot event (used by Telegram digests)
+    maybeProximityEvents(p);
 
     // persist progress (throttled)
     persistPlayerIfNeeded(p, false);

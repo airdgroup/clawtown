@@ -239,9 +239,10 @@ let chatFilter = (() => {
   try {
     const v = String(localStorage.getItem(CHAT_FILTER_KEY) || "").trim().toLowerCase();
     if (v === "people" || v === "system") return v;
-    return "all";
+    // Default: show people chat (avoid system spam). Users can switch to "All" anytime.
+    return "people";
   } catch {
-    return "all";
+    return "people";
   }
 })();
 
@@ -1043,7 +1044,9 @@ function installNoDoubleTapZoom() {
       const now = Date.now();
       if (now - lastTouchStart <= 320) {
         const t = e.target;
-        const hot = t && t.closest && t.closest('.slot, #mobileMenu, #game, .joystick');
+        // IMPORTANT: do NOT include #game here. PreventDefault on the canvas breaks iOS Safari scrolling,
+        // which prevents the address/tab chrome from collapsing in landscape.
+        const hot = t && t.closest && t.closest('.slot, #mobileMenu, .joystick');
         if (hot) {
           e.preventDefault();
         }
@@ -1059,7 +1062,7 @@ function installNoDoubleTapZoom() {
       const now = Date.now();
       if (now - lastTouchEnd <= 320) {
         const t = e.target;
-        const hot = t && t.closest && t.closest('.slot, #mobileMenu, #game, .joystick');
+        const hot = t && t.closest && t.closest('.slot, #mobileMenu, .joystick');
         if (hot) e.preventDefault();
       }
       lastTouchEnd = now;
@@ -1085,8 +1088,15 @@ stageEl?.addEventListener('pointerdown', closeDrawerOnGameplayInteraction, { cap
 function initJoystick() {
   if (!joystickEl || !joystickKnobEl) return;
 
-  const maxR = 36; // px (visual, not world)
-  const dead = 10; // px
+  function maxRadiusPx() {
+    // Scale the stick radius with the control size so it feels consistent across Safari/Chrome.
+    const s = Math.max(0, Number(joystickEl.clientWidth || 0));
+    return clamp(s * 0.28, 26, 52);
+  }
+  function deadZonePx() {
+    const s = Math.max(0, Number(joystickEl.clientWidth || 0));
+    return clamp(s * 0.07, 8, 16);
+  }
 
   function setKnob(x, y) {
     joyState.knobX = x;
@@ -1098,6 +1108,7 @@ function initJoystick() {
     // 8-way-ish: allow diagonal when both axes exceed threshold.
     const ax = Math.abs(dx);
     const ay = Math.abs(dy);
+    const dead = deadZonePx();
     const ndx = ax < dead ? 0 : dx > 0 ? 1 : -1;
     const ndy = ay < dead ? 0 : dy > 0 ? 1 : -1;
     joyState.dx = ndx;
@@ -1116,6 +1127,7 @@ function initJoystick() {
   function handleMove(clientX, clientY) {
     const dx0 = clientX - joyState.cx;
     const dy0 = clientY - joyState.cy;
+    const maxR = maxRadiusPx();
     const d = Math.sqrt(dx0 * dx0 + dy0 * dy0) || 1;
     const scale = d > maxR ? maxR / d : 1;
     const kx = dx0 * scale;
@@ -2790,24 +2802,26 @@ function renderInventory() {
 }
 
 function draw() {
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  if (!state) return;
+  // NOTE: Avoid clearing the canvas before we know we have a valid world snapshot.
+  // iOS Safari (and flaky networks) can briefly deliver "no world yet" states during reconnects,
+  // which would otherwise look like a distracting blink.
+  if (!state || !state.world) return;
 
-  const world = state.world;
-  if (!world) return;
-  const t = Number(world.tileSize);
+  const t = Number(state.world.tileSize);
   if (!Number.isFinite(t) || t <= 0) return;
+
   updateCamera();
 
-  ctx.save();
   try {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.save();
+
     // Mobile zoom + camera follow: transform world space into screen space.
     const z = Number(view.zoom || 1) || 1;
     ctx.scale(z, z);
     ctx.translate(-Number(view.camX || 0), -Number(view.camY || 0));
 
     drawTerrain(t);
-
     drawDrops();
 
     // fx
@@ -2832,207 +2846,207 @@ function draw() {
         const r = 18 + (1 - p) * 44;
         const payload = fx.payload || {};
 
-    const palette = {
-      spark: { fill: "rgba(184,135,27,0.20)", stroke: "rgba(184,135,27,0.55)" },
-      blink: { fill: "rgba(43,108,176,0.16)", stroke: "rgba(43,108,176,0.55)" },
-      mark: { fill: "rgba(185,28,28,0.10)", stroke: "rgba(185,28,28,0.62)" },
-      echo: { fill: "rgba(15,118,110,0.12)", stroke: "rgba(15,118,110,0.55)" },
-      guard: { fill: "rgba(22,163,74,0.12)", stroke: "rgba(22,163,74,0.55)" },
+        const palette = {
+          spark: { fill: "rgba(184,135,27,0.20)", stroke: "rgba(184,135,27,0.55)" },
+          blink: { fill: "rgba(43,108,176,0.16)", stroke: "rgba(43,108,176,0.55)" },
+          mark: { fill: "rgba(185,28,28,0.10)", stroke: "rgba(185,28,28,0.62)" },
+          echo: { fill: "rgba(15,118,110,0.12)", stroke: "rgba(15,118,110,0.55)" },
+          guard: { fill: "rgba(22,163,74,0.12)", stroke: "rgba(22,163,74,0.55)" },
 
-      fireball: { fill: "rgba(185,28,28,0.12)", stroke: "rgba(185,28,28,0.62)" },
-      hail: { fill: "rgba(37,99,235,0.10)", stroke: "rgba(37,99,235,0.58)" },
-      arrow: { fill: "rgba(0,0,0,0)", stroke: "rgba(19,27,42,0.62)" },
-      cleave: { fill: "rgba(184,135,27,0.14)", stroke: "rgba(184,135,27,0.62)" },
-      flurry: { fill: "rgba(43,108,176,0.10)", stroke: "rgba(43,108,176,0.58)" },
-      crit: { fill: "rgba(0,0,0,0)", stroke: "rgba(185,28,28,0.78)" },
-    };
+          fireball: { fill: "rgba(185,28,28,0.12)", stroke: "rgba(185,28,28,0.62)" },
+          hail: { fill: "rgba(37,99,235,0.10)", stroke: "rgba(37,99,235,0.58)" },
+          arrow: { fill: "rgba(0,0,0,0)", stroke: "rgba(19,27,42,0.62)" },
+          cleave: { fill: "rgba(184,135,27,0.14)", stroke: "rgba(184,135,27,0.62)" },
+          flurry: { fill: "rgba(43,108,176,0.10)", stroke: "rgba(43,108,176,0.58)" },
+          crit: { fill: "rgba(0,0,0,0)", stroke: "rgba(185,28,28,0.78)" },
+        };
 
-    const c = palette[type] || palette.spark;
+        const c = palette[type] || palette.spark;
 
-    if (type === "arrow") {
-      const fromX = Number.isFinite(Number(payload.fromX)) ? Number(payload.fromX) : fx.x;
-      const fromY = Number.isFinite(Number(payload.fromY)) ? Number(payload.fromY) : fx.y;
-      const prog = 1 - p;
-      const tipX = fromX + (fx.x - fromX) * Math.max(0, Math.min(1, prog * 1.15));
-      const tipY = fromY + (fx.y - fromY) * Math.max(0, Math.min(1, prog * 1.15));
-      ctx.strokeStyle = c.stroke;
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(fromX, fromY);
-      ctx.lineTo(tipX, tipY);
-      ctx.stroke();
-
-      // arrow head
-      const dx = tipX - fromX;
-      const dy = tipY - fromY;
-      const ang = Math.atan2(dy, dx);
-      const ah = 10;
-      ctx.beginPath();
-      ctx.moveTo(tipX, tipY);
-      ctx.lineTo(tipX - Math.cos(ang - 0.6) * ah, tipY - Math.sin(ang - 0.6) * ah);
-      ctx.moveTo(tipX, tipY);
-      ctx.lineTo(tipX - Math.cos(ang + 0.6) * ah, tipY - Math.sin(ang + 0.6) * ah);
-      ctx.stroke();
-
-      // impact ring (near end)
-      if (prog > 0.72) {
-        const q = Math.max(0, Math.min(1, (prog - 0.72) / 0.28));
-        ctx.globalAlpha = Math.max(0, p) * q;
-        ctx.beginPath();
-        ctx.arc(fx.x, fx.y, 10 + q * 22, 0, Math.PI * 2);
-        ctx.stroke();
-      }
-    } else if (type === "crit") {
-      ctx.strokeStyle = c.stroke;
-      ctx.lineWidth = 2;
-      const rr = 10 + (1 - p) * 18;
-      ctx.beginPath();
-      for (let i = 0; i < 8; i++) {
-        const a = (Math.PI * 2 * i) / 8;
-        ctx.moveTo(fx.x, fx.y);
-        ctx.lineTo(fx.x + Math.cos(a) * rr, fx.y + Math.sin(a) * rr);
-      }
-      ctx.stroke();
-    } else if (type === "cleave") {
-      const rr = Number.isFinite(Number(payload.radius)) ? Number(payload.radius) * 0.6 : 64;
-      ctx.fillStyle = c.fill;
-      ctx.strokeStyle = c.stroke;
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.arc(fx.x, fx.y, rr, -0.85, 0.85);
-      ctx.lineTo(fx.x, fx.y);
-      ctx.closePath();
-      ctx.fill();
-      ctx.stroke();
-    } else if (type === "fireball" || type === "hail") {
-      const rr = Number.isFinite(Number(payload.radius)) ? Number(payload.radius) : r * 1.6;
-      const prog = 1 - p;
-
-      // telegraph ring
-      ctx.fillStyle = c.fill;
-      ctx.strokeStyle = c.stroke;
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.arc(fx.x, fx.y, rr * (0.55 + prog * 0.65), 0, Math.PI * 2);
-      ctx.fill();
-      ctx.stroke();
-
-      // raining projectiles
-      const seedBase = hashString(fx.id || `${fx.x},${fx.y},${fx.createdAt}`);
-      const count = type === "fireball" ? 16 : 22;
-      for (let i = 0; i < count; i++) {
-        const s1 = seedBase + i * 1013;
-        const s2 = seedBase + i * 1013 + 17;
-        const s3 = seedBase + i * 1013 + 41;
-        const s4 = seedBase + i * 1013 + 89;
-        const ang = rand01(s1) * Math.PI * 2;
-        const rad = Math.sqrt(rand01(s2)) * rr * 0.92;
-        const ox = Math.cos(ang) * rad;
-        const oy = Math.sin(ang) * rad;
-
-        const startY = -140 - rand01(s3) * 190;
-        const fall = prog * (210 + rand01(s4) * 220);
-        const px = fx.x + ox;
-        const py = fx.y + oy + startY + fall;
-
-        const impactY = fx.y + oy;
-        const localAlpha = Math.max(0, Math.min(1, 1 - Math.abs(prog - 0.62) * 1.25));
-        ctx.globalAlpha = Math.max(0, p) * localAlpha;
-
-        if (type === "fireball") {
-          // tail
-          ctx.strokeStyle = "rgba(251,146,60,0.55)";
+        if (type === "arrow") {
+          const fromX = Number.isFinite(Number(payload.fromX)) ? Number(payload.fromX) : fx.x;
+          const fromY = Number.isFinite(Number(payload.fromY)) ? Number(payload.fromY) : fx.y;
+          const prog = 1 - p;
+          const tipX = fromX + (fx.x - fromX) * Math.max(0, Math.min(1, prog * 1.15));
+          const tipY = fromY + (fx.y - fromY) * Math.max(0, Math.min(1, prog * 1.15));
+          ctx.strokeStyle = c.stroke;
           ctx.lineWidth = 2;
           ctx.beginPath();
-          ctx.moveTo(px, py - 16);
-          ctx.lineTo(px, py + 8);
+          ctx.moveTo(fromX, fromY);
+          ctx.lineTo(tipX, tipY);
           ctx.stroke();
 
-          // ember
-          ctx.fillStyle = "rgba(239,68,68,0.9)";
+          // arrow head
+          const dx = tipX - fromX;
+          const dy = tipY - fromY;
+          const ang = Math.atan2(dy, dx);
+          const ah = 10;
           ctx.beginPath();
-          ctx.arc(px, py, 4.5, 0, Math.PI * 2);
-          ctx.fill();
+          ctx.moveTo(tipX, tipY);
+          ctx.lineTo(tipX - Math.cos(ang - 0.6) * ah, tipY - Math.sin(ang - 0.6) * ah);
+          ctx.moveTo(tipX, tipY);
+          ctx.lineTo(tipX - Math.cos(ang + 0.6) * ah, tipY - Math.sin(ang + 0.6) * ah);
+          ctx.stroke();
 
-          ctx.globalAlpha *= 0.7;
-          ctx.fillStyle = "rgba(251,191,36,0.7)";
+          // impact ring (near end)
+          if (prog > 0.72) {
+            const q = Math.max(0, Math.min(1, (prog - 0.72) / 0.28));
+            ctx.globalAlpha = Math.max(0, p) * q;
+            ctx.beginPath();
+            ctx.arc(fx.x, fx.y, 10 + q * 22, 0, Math.PI * 2);
+            ctx.stroke();
+          }
+        } else if (type === "crit") {
+          ctx.strokeStyle = c.stroke;
+          ctx.lineWidth = 2;
+          const rr = 10 + (1 - p) * 18;
           ctx.beginPath();
-          ctx.arc(px + 1.6, py - 1.2, 2.2, 0, Math.PI * 2);
+          for (let i = 0; i < 8; i++) {
+            const a = (Math.PI * 2 * i) / 8;
+            ctx.moveTo(fx.x, fx.y);
+            ctx.lineTo(fx.x + Math.cos(a) * rr, fx.y + Math.sin(a) * rr);
+          }
+          ctx.stroke();
+        } else if (type === "cleave") {
+          const rr = Number.isFinite(Number(payload.radius)) ? Number(payload.radius) * 0.6 : 64;
+          ctx.fillStyle = c.fill;
+          ctx.strokeStyle = c.stroke;
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.arc(fx.x, fx.y, rr, -0.85, 0.85);
+          ctx.lineTo(fx.x, fx.y);
+          ctx.closePath();
           ctx.fill();
+          ctx.stroke();
+        } else if (type === "fireball" || type === "hail") {
+          const rr = Number.isFinite(Number(payload.radius)) ? Number(payload.radius) : r * 1.6;
+          const prog = 1 - p;
+
+          // telegraph ring
+          ctx.fillStyle = c.fill;
+          ctx.strokeStyle = c.stroke;
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.arc(fx.x, fx.y, rr * (0.55 + prog * 0.65), 0, Math.PI * 2);
+          ctx.fill();
+          ctx.stroke();
+
+          // raining projectiles
+          const seedBase = hashString(fx.id || `${fx.x},${fx.y},${fx.createdAt}`);
+          const count = type === "fireball" ? 16 : 22;
+          for (let i = 0; i < count; i++) {
+            const s1 = seedBase + i * 1013;
+            const s2 = seedBase + i * 1013 + 17;
+            const s3 = seedBase + i * 1013 + 41;
+            const s4 = seedBase + i * 1013 + 89;
+            const ang = rand01(s1) * Math.PI * 2;
+            const rad = Math.sqrt(rand01(s2)) * rr * 0.92;
+            const ox = Math.cos(ang) * rad;
+            const oy = Math.sin(ang) * rad;
+
+            const startY = -140 - rand01(s3) * 190;
+            const fall = prog * (210 + rand01(s4) * 220);
+            const px = fx.x + ox;
+            const py = fx.y + oy + startY + fall;
+
+            const impactY = fx.y + oy;
+            const localAlpha = Math.max(0, Math.min(1, 1 - Math.abs(prog - 0.62) * 1.25));
+            ctx.globalAlpha = Math.max(0, p) * localAlpha;
+
+            if (type === "fireball") {
+              // tail
+              ctx.strokeStyle = "rgba(251,146,60,0.55)";
+              ctx.lineWidth = 2;
+              ctx.beginPath();
+              ctx.moveTo(px, py - 16);
+              ctx.lineTo(px, py + 8);
+              ctx.stroke();
+
+              // ember
+              ctx.fillStyle = "rgba(239,68,68,0.9)";
+              ctx.beginPath();
+              ctx.arc(px, py, 4.5, 0, Math.PI * 2);
+              ctx.fill();
+
+              ctx.globalAlpha *= 0.7;
+              ctx.fillStyle = "rgba(251,191,36,0.7)";
+              ctx.beginPath();
+              ctx.arc(px + 1.6, py - 1.2, 2.2, 0, Math.PI * 2);
+              ctx.fill();
+            } else {
+              // hail shard
+              ctx.strokeStyle = "rgba(147,197,253,0.9)";
+              ctx.lineWidth = 2;
+              ctx.beginPath();
+              ctx.moveTo(px - 4, py - 8);
+              ctx.lineTo(px + 2, py + 10);
+              ctx.stroke();
+              ctx.globalAlpha *= 0.7;
+              ctx.strokeStyle = "rgba(59,130,246,0.6)";
+              ctx.beginPath();
+              ctx.moveTo(px + 3, py - 6);
+              ctx.lineTo(px + 8, py + 6);
+              ctx.stroke();
+            }
+
+            // impact splash near the end
+            if (prog > 0.62) {
+              const q = Math.max(0, Math.min(1, (prog - 0.62) / 0.38));
+              ctx.globalAlpha = Math.max(0, p) * q;
+              ctx.strokeStyle = type === "fireball" ? "rgba(251,146,60,0.55)" : "rgba(147,197,253,0.55)";
+              ctx.lineWidth = 2;
+              ctx.beginPath();
+              ctx.arc(px, impactY, 6 + q * 16, 0, Math.PI * 2);
+              ctx.stroke();
+            }
+          }
+
+          // inner pulse
+          ctx.globalAlpha = Math.max(0, p * 0.65);
+          ctx.strokeStyle = c.stroke;
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.arc(fx.x, fx.y, rr * (0.25 + prog * 0.35), 0, Math.PI * 2);
+          ctx.stroke();
+        } else if (type === "flurry") {
+          ctx.strokeStyle = c.stroke;
+          ctx.lineWidth = 2;
+          for (let i = 0; i < 3; i++) {
+            const rr = 10 + i * 9 + (1 - p) * 18;
+            ctx.globalAlpha = Math.max(0, p * (0.75 - i * 0.18));
+            ctx.beginPath();
+            ctx.arc(fx.x, fx.y, rr, 0, Math.PI * 2);
+            ctx.stroke();
+          }
+        } else if (type === "mark") {
+          ctx.strokeStyle = c.stroke;
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.arc(fx.x, fx.y, r, 0, Math.PI * 2);
+          ctx.stroke();
+
+          // crosshair
+          ctx.beginPath();
+          ctx.moveTo(fx.x - 10, fx.y);
+          ctx.lineTo(fx.x + 10, fx.y);
+          ctx.moveTo(fx.x, fx.y - 10);
+          ctx.lineTo(fx.x, fx.y + 10);
+          ctx.stroke();
         } else {
-          // hail shard
-          ctx.strokeStyle = "rgba(147,197,253,0.9)";
+          ctx.fillStyle = c.fill;
+          ctx.strokeStyle = c.stroke;
           ctx.lineWidth = 2;
           ctx.beginPath();
-          ctx.moveTo(px - 4, py - 8);
-          ctx.lineTo(px + 2, py + 10);
+          ctx.arc(fx.x, fx.y, r, 0, Math.PI * 2);
+          ctx.fill();
           ctx.stroke();
-          ctx.globalAlpha *= 0.7;
-          ctx.strokeStyle = "rgba(59,130,246,0.6)";
+
+          // inner pulse
+          ctx.globalAlpha = Math.max(0, p * 0.65);
           ctx.beginPath();
-          ctx.moveTo(px + 3, py - 6);
-          ctx.lineTo(px + 8, py + 6);
+          ctx.arc(fx.x, fx.y, r * 0.55, 0, Math.PI * 2);
           ctx.stroke();
         }
-
-        // impact splash near the end
-        if (prog > 0.62) {
-          const q = Math.max(0, Math.min(1, (prog - 0.62) / 0.38));
-          ctx.globalAlpha = Math.max(0, p) * q;
-          ctx.strokeStyle = type === "fireball" ? "rgba(251,146,60,0.55)" : "rgba(147,197,253,0.55)";
-          ctx.lineWidth = 2;
-          ctx.beginPath();
-          ctx.arc(px, impactY, 6 + q * 16, 0, Math.PI * 2);
-          ctx.stroke();
-        }
-      }
-
-      // inner pulse
-      ctx.globalAlpha = Math.max(0, p * 0.65);
-      ctx.strokeStyle = c.stroke;
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.arc(fx.x, fx.y, rr * (0.25 + prog * 0.35), 0, Math.PI * 2);
-      ctx.stroke();
-    } else if (type === "flurry") {
-      ctx.strokeStyle = c.stroke;
-      ctx.lineWidth = 2;
-      for (let i = 0; i < 3; i++) {
-        const rr = 10 + i * 9 + (1 - p) * 18;
-        ctx.globalAlpha = Math.max(0, p * (0.75 - i * 0.18));
-        ctx.beginPath();
-        ctx.arc(fx.x, fx.y, rr, 0, Math.PI * 2);
-        ctx.stroke();
-      }
-    } else if (type === "mark") {
-      ctx.strokeStyle = c.stroke;
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.arc(fx.x, fx.y, r, 0, Math.PI * 2);
-      ctx.stroke();
-
-      // crosshair
-      ctx.beginPath();
-      ctx.moveTo(fx.x - 10, fx.y);
-      ctx.lineTo(fx.x + 10, fx.y);
-      ctx.moveTo(fx.x, fx.y - 10);
-      ctx.lineTo(fx.x, fx.y + 10);
-      ctx.stroke();
-    } else {
-      ctx.fillStyle = c.fill;
-      ctx.strokeStyle = c.stroke;
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.arc(fx.x, fx.y, r, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.stroke();
-
-      // inner pulse
-      ctx.globalAlpha = Math.max(0, p * 0.65);
-      ctx.beginPath();
-      ctx.arc(fx.x, fx.y, r * 0.55, 0, Math.PI * 2);
-      ctx.stroke();
-    }
       } catch {
         // Never let a single bad fx event blank the whole frame.
       } finally {
@@ -3052,96 +3066,103 @@ function draw() {
       ctx.save();
       try {
         const isYou = p.id === playerId;
-    // shadow
-    ctx.beginPath();
-    ctx.fillStyle = "rgba(9,19,36,0.18)";
-    ctx.ellipse(p.x, p.y + 10, 12, 6, 0, 0, Math.PI * 2);
-    ctx.fill();
 
-    // avatar (custom uploads or default sprite)
-    const avV = Number(p.avatarVersion || 0) || 0;
-    const avUrl = avV > 0 ? `/api/avatars/${encodeURIComponent(p.id)}.png?v=${encodeURIComponent(String(avV))}` : "";
-    const customImg = avUrl ? getCustomAvatarImg(avUrl) : null;
-    let hasAvatar = false;
+        // shadow
+        ctx.beginPath();
+        ctx.fillStyle = "rgba(9,19,36,0.18)";
+        ctx.ellipse(p.x, p.y + 10, 12, 6, 0, 0, Math.PI * 2);
+        ctx.fill();
 
-    if (customImg && customImg.complete && customImg.naturalWidth > 0) {
-      const dw = 72;
-      const dh = 72;
-      const dx = p.x - dw / 2;
-      const dy = p.y - dh + 22;
-      try {
-        ctx.drawImage(customImg, dx, dy, dw, dh);
-        hasAvatar = true;
-      } catch {
-        // Broken/corrupt images should never blank the whole frame.
-        hasAvatar = false;
-      }
-    } else if (avatarSpriteReady) {
-      // Sprite sheet is a 5x8 grid (approx). Use a clean front-facing poring frame.
-      const cellW = 134;
-      const cellH = 112;
-      const sx = 0;
-      const sy = 1 * cellH;
-      const sw = cellW;
-      const sh = cellH;
+        // avatar (custom uploads or default sprite)
+        const avV = Number(p.avatarVersion || 0) || 0;
+        const avUrl = avV > 0 ? `/api/avatars/${encodeURIComponent(p.id)}.png?v=${encodeURIComponent(String(avV))}` : "";
+        const customImg = avUrl ? getCustomAvatarImg(avUrl) : null;
+        let hasAvatar = false;
 
-      const dw = 72;
-      const dh = 72;
-      const dx = p.x - dw / 2;
-      const dy = p.y - dh + 22;
-      ctx.drawImage(avatarSprite, sx, sy, sw, sh, dx, dy, dw, dh);
-      hasAvatar = true;
-    } else {
-      const base = isYou ? "rgba(43,108,176,0.92)" : "rgba(15,118,110,0.86)";
-      const agentGlow = p.mode === "agent" ? "rgba(184,135,27,0.92)" : base;
-      ctx.fillStyle = agentGlow;
-      ctx.strokeStyle = "rgba(255,255,255,0.65)";
-      ctx.lineWidth = 2;
-      roundRectPath(ctx, p.x - 10, p.y - 14, 20, 22, 8);
-      ctx.fill();
-      if (isYou) ctx.stroke();
+        if (customImg && customImg.complete && customImg.naturalWidth > 0) {
+          const dw = 72;
+          const dh = 72;
+          const dx = p.x - dw / 2;
+          const dy = p.y - dh + 22;
+          try {
+            ctx.drawImage(customImg, dx, dy, dw, dh);
+            hasAvatar = true;
+          } catch {
+            // Broken/corrupt images should never blank the whole frame.
+            hasAvatar = false;
+          }
+        } else if (avatarSpriteReady) {
+          // Sprite sheet is a 5x8 grid (approx). Use a clean front-facing poring frame.
+          const cellW = 134;
+          const cellH = 112;
+          const sx = 0;
+          const sy = 1 * cellH;
+          const sw = cellW;
+          const sh = cellH;
 
-      // face highlight
-      ctx.fillStyle = "rgba(255,255,255,0.45)";
-      roundRectPath(ctx, p.x - 6, p.y - 11, 12, 10, 6);
-      ctx.fill();
-    }
+          const dw = 72;
+          const dh = 72;
+          const dx = p.x - dw / 2;
+          const dy = p.y - dh + 22;
+          ctx.drawImage(avatarSprite, sx, sy, sw, sh, dx, dy, dw, dh);
+          hasAvatar = true;
+        } else {
+          const base = isYou ? "rgba(43,108,176,0.92)" : "rgba(15,118,110,0.86)";
+          const agentGlow = p.mode === "agent" ? "rgba(184,135,27,0.92)" : base;
+          ctx.fillStyle = agentGlow;
+          ctx.strokeStyle = "rgba(255,255,255,0.65)";
+          ctx.lineWidth = 2;
+          roundRectPath(ctx, p.x - 10, p.y - 14, 20, 22, 8);
+          ctx.fill();
+          if (isYou) ctx.stroke();
 
-    // mode ring (shown when agent, or highlight yourself)
-    if (hasAvatar && (p.mode === "agent" || isYou)) {
-      ctx.strokeStyle = p.mode === "agent" ? "rgba(184,135,27,0.78)" : "rgba(43,108,176,0.72)";
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.arc(p.x, p.y + 10, 16, 0, Math.PI * 2);
-      ctx.stroke();
-    }
+          // face highlight
+          ctx.fillStyle = "rgba(255,255,255,0.45)";
+          roundRectPath(ctx, p.x - 6, p.y - 11, 12, 10, 6);
+          ctx.fill();
+        }
 
-    // name
-    ctx.font = "12px JetBrains Mono";
-    ctx.fillStyle = "rgba(19,27,42,0.92)";
-    ctx.textAlign = "center";
-    const avatarTopY = p.y - 72 + 22;
-    ctx.fillText(p.name, p.x, hasAvatar ? avatarTopY - 12 : p.y - 16);
+        // mode ring (shown when agent, or highlight yourself)
+        if (hasAvatar && (p.mode === "agent" || isYou)) {
+          ctx.strokeStyle = p.mode === "agent" ? "rgba(184,135,27,0.78)" : "rgba(43,108,176,0.72)";
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.arc(p.x, p.y + 10, 16, 0, Math.PI * 2);
+          ctx.stroke();
+        }
 
-    // intent (short)
-    if (p.intent) {
-      ctx.font = "11px Spline Sans";
-      ctx.fillStyle = "rgba(19,27,42,0.66)";
-      ctx.fillText(p.intent.slice(0, 30), p.x, p.y + 34);
-    }
+        // name
+        ctx.font = "12px JetBrains Mono";
+        ctx.fillStyle = "rgba(19,27,42,0.92)";
+        ctx.textAlign = "center";
+        const avatarTopY = p.y - 72 + 22;
+        ctx.fillText(p.name, p.x, hasAvatar ? avatarTopY - 12 : p.y - 16);
 
-    const speech = localLastSpeech.get(p.id);
-    if (speech && Date.now() - speech.atMs < 4500) {
-      drawSpeechBubble(p.x, hasAvatar ? avatarTopY - 40 : p.y - 44, speech.text);
-    }
+        // intent (short)
+        if (p.intent) {
+          ctx.font = "11px Spline Sans";
+          ctx.fillStyle = "rgba(19,27,42,0.66)";
+          ctx.fillText(p.intent.slice(0, 30), p.x, p.y + 34);
+        }
+
+        const speech = localLastSpeech.get(p.id);
+        if (speech && Date.now() - speech.atMs < 4500) {
+          drawSpeechBubble(p.x, hasAvatar ? avatarTopY - 40 : p.y - 44, speech.text);
+        }
       } catch {
         // Never let a single bad avatar/state frame blank the whole render.
       } finally {
         ctx.restore();
       }
     }
+  } catch {
+    // Never let a render error permanently kill the loop; worst case we miss a frame.
   } finally {
-    ctx.restore();
+    try {
+      ctx.restore();
+    } catch {
+      // ignore
+    }
   }
 
   drawMinimap();
