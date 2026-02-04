@@ -675,6 +675,7 @@ const playerId = stored?.playerId || uid();
 let myName = stored?.name || "";
 let ws;
 let state;
+let lastGoodState = null;
 let you;
 let recentFx = [];
 let lastMoveSentAt = 0;
@@ -3684,13 +3685,31 @@ function connect() {
     setTimeout(connect, 500);
   });
 
+  function acceptState(next) {
+    // Defensive: never allow a malformed state payload to blank the map.
+    // (We've observed mobile browsers occasionally ending up with "state: undefined" UI.)
+    if (!next || typeof next !== "object") return false;
+    if (!next.world || typeof next.world !== "object") return false;
+    if (!Array.isArray(next.players)) return false;
+    state = next;
+    lastGoodState = next;
+    window.__ct = window.__ct || {};
+    window.__ct.state = state;
+    return true;
+  }
+
   ws.addEventListener("message", (e) => {
-    const msg = JSON.parse(String(e.data));
-    if (msg.type === "hello") {
-      you = msg.you;
-      state = msg.state;
+    let msg;
+    try {
+      msg = JSON.parse(String(e.data));
+    } catch {
+      return;
+    }
+    try {
+      if (msg.type === "hello") {
+        you = msg.you;
+        if (!acceptState(msg.state)) return;
       window.__ct = window.__ct || {};
-      window.__ct.state = state;
       window.__ct.you = you;
       recentFx = (msg.recentFx || []).concat(recentFx);
       window.__ct.recentFx = recentFx;
@@ -3740,9 +3759,7 @@ function connect() {
       return;
     }
     if (msg.type === "state") {
-      state = msg.state;
-      window.__ct = window.__ct || {};
-      window.__ct.state = state;
+      if (!acceptState(msg.state)) return;
       if (state?.players) {
         you = state.players.find((p) => p.id === playerId) || you;
         window.__ct.you = you;
@@ -3823,6 +3840,11 @@ function connect() {
     if (msg.type === "party_error") {
       statusEl.textContent = String(msg.error || "隊伍：操作失敗");
       return;
+    }
+    } catch {
+      // Keep the game playable even if one message handler fails.
+      // Prefer continuing with the last good state rather than blanking the map.
+      if (lastGoodState && (!state || !state.world)) state = lastGoodState;
     }
   });
 }
