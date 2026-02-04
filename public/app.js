@@ -2633,7 +2633,10 @@ function draw() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   if (!state) return;
 
-  const t = state.world.tileSize;
+  const world = state.world;
+  if (!world) return;
+  const t = Number(world.tileSize);
+  if (!Number.isFinite(t) || t <= 0) return;
   drawTerrain(t);
 
   drawDrops();
@@ -2643,22 +2646,23 @@ function draw() {
   // NOTE: createdAt comes from server time. If the client clock is behind, age can be negative.
   // Clamp to avoid negative radii / IndexSizeError in Canvas APIs (which can cause visible flicker).
   const clamp01 = (x) => (x < 0 ? 0 : x > 1 ? 1 : x);
-  recentFx = recentFx.filter((fx) => {
+  recentFx = (Array.isArray(recentFx) ? recentFx : []).filter((fx) => {
     const created = Date.parse(fx.createdAt);
     if (!Number.isFinite(created)) return false;
     const age = Math.max(0, now - created);
     return age < 1400;
   });
   for (const fx of recentFx) {
-    const created = Date.parse(fx.createdAt);
-    const age = Number.isFinite(created) ? Math.max(0, now - created) : 999999;
-    const p = clamp01(1 - age / 1200);
     ctx.save();
-    ctx.globalAlpha = p;
+    try {
+      const created = Date.parse(fx.createdAt);
+      const age = Number.isFinite(created) ? Math.max(0, now - created) : 999999;
+      const p = clamp01(1 - age / 1200);
+      ctx.globalAlpha = p;
 
-    const type = String(fx.type || "spark");
-    const r = 18 + (1 - p) * 44;
-    const payload = fx.payload || {};
+      const type = String(fx.type || "spark");
+      const r = 18 + (1 - p) * 44;
+      const payload = fx.payload || {};
 
     const palette = {
       spark: { fill: "rgba(184,135,27,0.20)", stroke: "rgba(184,135,27,0.55)" },
@@ -2861,15 +2865,25 @@ function draw() {
       ctx.arc(fx.x, fx.y, r * 0.55, 0, Math.PI * 2);
       ctx.stroke();
     }
-    ctx.restore();
+    } catch {
+      // Never let a single bad fx event blank the whole frame.
+    } finally {
+      ctx.restore();
+    }
   }
 
-  drawMonsters();
+  try {
+    drawMonsters();
+  } catch {
+    // ignore
+  }
 
   // players
-  for (const p of state.players) {
-    const isYou = p.id === playerId;
+  const ps = Array.isArray(state.players) ? state.players : [];
+  for (const p of ps) {
     ctx.save();
+    try {
+      const isYou = p.id === playerId;
     // shadow
     ctx.beginPath();
     ctx.fillStyle = "rgba(9,19,36,0.18)";
@@ -2882,13 +2896,18 @@ function draw() {
     const customImg = avUrl ? getCustomAvatarImg(avUrl) : null;
     let hasAvatar = false;
 
-    if (customImg) {
+    if (customImg && customImg.complete && customImg.naturalWidth > 0) {
       const dw = 72;
       const dh = 72;
       const dx = p.x - dw / 2;
       const dy = p.y - dh + 22;
-      ctx.drawImage(customImg, dx, dy, dw, dh);
-      hasAvatar = true;
+      try {
+        ctx.drawImage(customImg, dx, dy, dw, dh);
+        hasAvatar = true;
+      } catch {
+        // Broken/corrupt images should never blank the whole frame.
+        hasAvatar = false;
+      }
     } else if (avatarSpriteReady) {
       // Sprite sheet is a 5x8 grid (approx). Use a clean front-facing poring frame.
       const cellW = 134;
@@ -2947,7 +2966,11 @@ function draw() {
     if (speech && Date.now() - speech.atMs < 4500) {
       drawSpeechBubble(p.x, hasAvatar ? avatarTopY - 40 : p.y - 44, speech.text);
     }
-    ctx.restore();
+    } catch {
+      // Never let a single bad avatar/state frame blank the whole render.
+    } finally {
+      ctx.restore();
+    }
   }
 }
 
@@ -3086,6 +3109,7 @@ function rand01(seed) {
 }
 
 function drawTerrain(tileSize) {
+  if (!state || !state.world) return;
   const w = state.world.width;
   const h = state.world.height;
 

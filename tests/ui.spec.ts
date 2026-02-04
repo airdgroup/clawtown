@@ -156,6 +156,36 @@ test('Combat: hotkey 1 damages a nearby monster', async ({ page }) => {
   expect(changed).toBeTruthy();
 });
 
+test('Render: invalid fx payload never crashes the canvas draw loop', async ({ page }) => {
+  await resetWorld(page);
+  await page.goto('/');
+  await waitForFonts(page);
+  await closeOnboarding(page);
+
+  const pageErrors: string[] = [];
+  page.on('pageerror', (e) => pageErrors.push(String(e)));
+
+  // Wait for the websocket hello/state to populate globals.
+  await page.waitForFunction(() => (window as any).__ct?.recentFx && Array.isArray((window as any).__ct?.recentFx));
+
+  // Inject an intentionally bad FX event that used to trigger canvas exceptions (NaN coords/radii).
+  await page.evaluate(() => {
+    const ct = (window as any).__ct;
+    ct.recentFx.unshift({
+      id: 'bad-fx',
+      createdAt: new Date().toISOString(),
+      type: 'arrow',
+      x: NaN,
+      y: NaN,
+      payload: { fromX: NaN, fromY: NaN, radius: NaN },
+    });
+  });
+
+  // Give the server a couple ticks to deliver a state update and trigger draw().
+  await page.waitForTimeout(1500);
+  expect(pageErrors, pageErrors.join('\n')).toHaveLength(0);
+});
+
 test('Input: arrow keys do not scroll the page', async ({ page }) => {
   await resetWorld(page);
   await page.goto('/');
