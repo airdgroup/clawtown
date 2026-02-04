@@ -1620,17 +1620,29 @@ function authBot(req) {
   // Allow bot-only sessions (no browser) by lazily loading the player from disk.
   const p = players.get(playerId) || getOrCreatePlayer(playerId, null);
   if (!p) return null;
-  p.externalBotLastSeenAt = nowMs();
   return { token, player: p };
+}
+
+function markBotSeen(p) {
+  if (!p) return;
+  p.externalBotLastSeenAt = nowMs();
+}
+
+function markBotAction(p) {
+  if (!p) return;
+  const t = nowMs();
+  p.externalBotLastSeenAt = t;
+  p.externalBotLastActionAt = t;
 }
 
 function canAutopilot(p) {
   if (!p) return false;
   if (p.mode !== 'agent') return false;
   if (!p.linkedBot) return false;
-  const lastSeen = Number(p.externalBotLastSeenAt || 0);
-  // If an external bot is polling recently, assume it is in control.
-  return nowMs() - lastSeen > 8000;
+  const lastAction = Number(p.externalBotLastActionAt || 0);
+  // If an external bot is actively issuing actions recently, assume it is in control.
+  // Read-only polling (events/status/map) should NOT disable server-side autopilot.
+  return nowMs() - lastAction > 8000;
 }
 
 function maybeAutopilot(p) {
@@ -2032,6 +2044,8 @@ app.post("/api/bot/link", (req, res) => {
   persistPlayerIfNeeded(p, true);
   persistBotTokens();
   p.linkedBot = true;
+  // Linking is an explicit bot action (but should not be treated as "controlling" for long).
+  markBotAction(p);
 
   pushChat({
     kind: "system",
@@ -2051,6 +2065,7 @@ app.post("/api/bot/link", (req, res) => {
 app.get("/api/bot/me", (req, res) => {
   const auth = authBot(req);
   if (!auth) return res.status(401).json({ ok: false, error: "unauthorized" });
+  markBotSeen(auth.player);
   res.json({ ok: true, player: toPublicPlayer(auth.player) });
 });
 
@@ -2060,7 +2075,7 @@ app.get("/api/bot/status", (req, res) => {
   const auth = authBot(req);
   if (!auth) return res.status(401).json({ ok: false, error: "unauthorized" });
   const p = auth.player;
-  p.externalBotLastActionAt = nowMs();
+  markBotSeen(p);
 
   const r2 = Math.pow(6 * WORLD.tileSize, 2);
   const nearbyPlayers = Array.from(players.values()).filter((pp) => pp.id !== p.id && dist2(pp.x, pp.y, p.x, p.y) <= r2).length;
@@ -2084,6 +2099,7 @@ app.get("/api/bot/world", (req, res) => {
   const auth = authBot(req);
   if (!auth) return res.status(401).json({ ok: false, error: "unauthorized" });
   const p = auth.player;
+  markBotSeen(p);
 
   const nearbyR2 = Math.pow(6 * WORLD.tileSize, 2);
   const relevantChats = chats
@@ -2127,7 +2143,7 @@ app.get("/api/bot/minimap.png", (req, res) => {
   const auth = authBot(req);
   if (!auth) return res.status(401).end();
   const p = auth.player;
-  p.externalBotLastActionAt = nowMs();
+  markBotSeen(p);
   const snapshot = currentState();
   const buf = renderMinimapPng({ you: p, snapshot, w: req.query?.w, h: req.query?.h });
   res.setHeader("Content-Type", "image/png");
@@ -2139,7 +2155,7 @@ app.get("/api/bot/map.png", (req, res) => {
   const auth = authBot(req);
   if (!auth) return res.status(401).end();
   const p = auth.player;
-  p.externalBotLastActionAt = nowMs();
+  markBotSeen(p);
   const snapshot = currentState();
   const buf = renderMapPng({ you: p, snapshot, w: req.query?.w, h: req.query?.h });
   res.setHeader("Content-Type", "image/png");
@@ -2154,7 +2170,7 @@ app.post("/api/bot/mode", (req, res) => {
   if (!['manual', 'agent'].includes(mode)) return res.status(400).json({ ok: false, error: "invalid mode" });
   auth.player.mode = mode;
   if (mode === "manual") auth.player.goal = null;
-  auth.player.externalBotLastActionAt = nowMs();
+  markBotAction(auth.player);
   res.json({ ok: true, player: toPublicPlayer(auth.player) });
 });
 
@@ -2162,6 +2178,7 @@ app.post("/api/bot/party/create", (req, res) => {
   const auth = authBot(req);
   if (!auth) return res.status(401).json({ ok: false, error: "unauthorized" });
   const p = auth.player;
+  markBotAction(p);
   if (p.partyId) return res.json({ ok: true, partyId: p.partyId });
   const id = createParty(p.id);
   p.partyId = id;
@@ -2173,6 +2190,7 @@ app.post("/api/bot/party/code", (req, res) => {
   const auth = authBot(req);
   if (!auth) return res.status(401).json({ ok: false, error: "unauthorized" });
   const p = auth.player;
+  markBotAction(p);
   if (!p.partyId) return res.status(400).json({ ok: false, error: "not in party" });
   const party = getParty(p.partyId);
   if (!party) return res.status(404).json({ ok: false, error: "party missing" });
@@ -2184,6 +2202,7 @@ app.post("/api/bot/party/code", (req, res) => {
 app.post("/api/bot/party/join", (req, res) => {
   const auth = authBot(req);
   if (!auth) return res.status(401).json({ ok: false, error: "unauthorized" });
+  markBotAction(auth.player);
   const code = String(req.body?.joinCode || "").trim();
   const rec = partyJoinCodes.get(code);
   if (!rec) return res.status(400).json({ ok: false, error: "invalid code" });
@@ -2202,6 +2221,7 @@ app.post("/api/bot/party/leave", (req, res) => {
   const auth = authBot(req);
   if (!auth) return res.status(401).json({ ok: false, error: "unauthorized" });
   const p = auth.player;
+  markBotAction(p);
   if (!p.partyId) return res.json({ ok: true });
   leaveParty(p.id);
   p.partyId = null;
@@ -2212,6 +2232,7 @@ app.post("/api/bot/party/leave", (req, res) => {
 app.post("/api/bot/interrupt", (req, res) => {
   const auth = authBot(req);
   if (!auth) return res.status(401).json({ ok: false, error: "unauthorized" });
+  markBotAction(auth.player);
   const level = String(req.body?.level || "").toLowerCase();
   if (!['off', 'mentions', 'nearby', 'all'].includes(level)) return res.status(400).json({ ok: false, error: "invalid level" });
   auth.player.interrupt = level;
@@ -2221,6 +2242,7 @@ app.post("/api/bot/interrupt", (req, res) => {
 app.post("/api/bot/goal", (req, res) => {
   const auth = authBot(req);
   if (!auth) return res.status(401).json({ ok: false, error: "unauthorized" });
+  markBotAction(auth.player);
   const x = Number(req.body?.x);
   const y = Number(req.body?.y);
   if (!Number.isFinite(x) || !Number.isFinite(y)) return res.status(400).json({ ok: false, error: "invalid coords" });
@@ -2228,15 +2250,14 @@ app.post("/api/bot/goal", (req, res) => {
     x: clamp(x, 0, (WORLD.width - 1) * WORLD.tileSize),
     y: clamp(y, 0, (WORLD.height - 1) * WORLD.tileSize),
   };
-  auth.player.externalBotLastActionAt = nowMs();
   res.json({ ok: true });
 });
 
 app.post("/api/bot/intent", (req, res) => {
   const auth = authBot(req);
   if (!auth) return res.status(401).json({ ok: false, error: "unauthorized" });
+  markBotAction(auth.player);
   auth.player.intent = safeText(req.body?.text || "", 200);
-  auth.player.externalBotLastActionAt = nowMs();
   res.json({ ok: true });
 });
 
@@ -2247,7 +2268,7 @@ app.post("/api/bot/chat", (req, res) => {
   const t = nowMs();
   if (t - p.lastChatAt < 1200) return res.status(429).json({ ok: false, error: "rate limited" });
   p.lastChatAt = t;
-  p.externalBotLastActionAt = t;
+  markBotAction(p);
   pushChat({ kind: "chat", text: req.body?.text, from: { id: p.id, name: p.name } });
   p.xp += 1;
   markDirty(p);
@@ -2270,7 +2291,7 @@ app.post("/api/bot/thought", (req, res) => {
   if (!auth) return res.status(401).json({ ok: false, error: "unauthorized" });
   const p = auth.player;
   const t = nowMs();
-  p.externalBotLastActionAt = t;
+  markBotAction(p);
 
   const text = safeText(String(req.body?.text || ""), 180);
   if (!text) return res.status(400).json({ ok: false, error: "missing text" });
@@ -2287,7 +2308,7 @@ app.get("/api/bot/events", (req, res) => {
   const auth = authBot(req);
   if (!auth) return res.status(401).json({ ok: false, error: "unauthorized" });
   const p = auth.player;
-  p.externalBotLastActionAt = nowMs();
+  markBotSeen(p);
   ensureBotEventState(p);
 
   const cursor = Math.max(0, Math.floor(Number(req.query.cursor) || 0));
@@ -2302,6 +2323,7 @@ app.post("/api/bot/hat-result", (req, res) => {
   const auth = authBot(req);
   if (!auth) return res.status(401).json({ ok: false, error: "unauthorized" });
   const p = auth.player;
+  markBotAction(p);
 
   const job = String(req.body?.job || "").toLowerCase();
   const allowedJobs = ["novice", "knight", "mage", "archer", "bard", "assassin"];
@@ -2329,7 +2351,7 @@ app.post("/api/bot/cast", (req, res) => {
   const auth = authBot(req);
   if (!auth) return res.status(401).json({ ok: false, error: "unauthorized" });
   const p = auth.player;
-  p.externalBotLastActionAt = nowMs();
+  markBotAction(p);
   const spell = req.body?.spell;
   const x = req.body?.x;
   const y = req.body?.y;
