@@ -677,6 +677,110 @@ let state;
 let you;
 let recentFx = [];
 let lastMoveSentAt = 0;
+const view = {
+  camX: 0,
+  camY: 0,
+  zoom: 1,
+  _initialized: false,
+};
+
+function clamp01(x) {
+  return x < 0 ? 0 : x > 1 ? 1 : x;
+}
+
+function lerp(a, b, t) {
+  return a + (b - a) * clamp01(t);
+}
+
+function currentZoom() {
+  if (!state || !state.world) return 1;
+  // Mobile: zoom in + camera follow so the map feels "bigger" and characters readable.
+  if (!isMobileLayout()) return 1;
+  try {
+    const isLand = Boolean(window.matchMedia && window.matchMedia("(orientation: landscape)").matches);
+    return isLand ? 1.18 : 1.32;
+  } catch {
+    return 1.28;
+  }
+}
+
+function updateCamera() {
+  if (!state || !state.world) return;
+  // Desktop: keep the full town visible (no camera follow).
+  if (!isMobileLayout()) {
+    view.zoom = 1;
+    view.camX = 0;
+    view.camY = 0;
+    view._initialized = false;
+    return;
+  }
+  const t = Number(state.world.tileSize);
+  const worldW = Number(state.world.width) * t;
+  const worldH = Number(state.world.height) * t;
+  if (!Number.isFinite(worldW) || !Number.isFinite(worldH) || worldW <= 0 || worldH <= 0) return;
+
+  const z = currentZoom();
+  view.zoom = z;
+  const vw = canvas.width / z;
+  const vh = canvas.height / z;
+
+  const cx = you ? Number(you.x) || worldW / 2 : worldW / 2;
+  const cy = you ? Number(you.y) || worldH / 2 : worldH / 2;
+
+  const maxX = Math.max(0, worldW - vw);
+  const maxY = Math.max(0, worldH - vh);
+  const targetX = clamp(cx - vw / 2, 0, maxX);
+  const targetY = clamp(cy - vh / 2, 0, maxY);
+
+  if (!view._initialized) {
+    view.camX = targetX;
+    view.camY = targetY;
+    view._initialized = true;
+    return;
+  }
+
+  // Smooth follow on mobile (reduces jitter from network/state updates).
+  view.camX = lerp(view.camX, targetX, 0.22);
+  view.camY = lerp(view.camY, targetY, 0.22);
+}
+
+function canvasToWorld(xCanvas, yCanvas) {
+  const z = view.zoom || 1;
+  return {
+    x: (view.camX || 0) + Number(xCanvas) / z,
+    y: (view.camY || 0) + Number(yCanvas) / z,
+  };
+}
+
+let takeoverToastT = 0;
+function flashStatus(text, ms = 1400) {
+  if (!statusEl) return;
+  const t0 = Date.now();
+  takeoverToastT = t0;
+  const prev = statusEl.textContent;
+  statusEl.textContent = text;
+  setTimeout(() => {
+    if (takeoverToastT !== t0) return;
+    // Prefer the canonical connected label after the toast.
+    statusEl.textContent = t('status.connected') || prev || '';
+  }, ms);
+}
+
+function ensureManualFromUserInput() {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return false;
+  if (!you) return false;
+  if (you.mode === "manual") return true;
+  // Takeover: user input always wins (Tesla-style).
+  setMode("manual");
+  try {
+    you.mode = "manual";
+  } catch {
+    // ignore
+  }
+  renderHeader();
+  flashStatus(lang === "en" ? "Manual (you took over)" : "已接管：手動模式");
+  return true;
+}
 let keyState = { up: false, down: false, left: false, right: false };
 let joyState = { active: false, dx: 0, dy: 0, pointerId: null, cx: 0, cy: 0, knobX: 0, knobY: 0 };
 
@@ -1022,6 +1126,10 @@ function initJoystick() {
 
   joystickEl.addEventListener("pointerdown", (e) => {
     if (!you) return;
+    if (you.mode !== "manual") {
+      // Takeover on first touch.
+      ensureManualFromUserInput();
+    }
     if (you.mode !== "manual") return;
     // Avoid scrolling/zooming while dragging the stick.
     e.preventDefault();
@@ -2396,15 +2504,20 @@ partySummonBtn?.addEventListener("click", () => {
 
 canvas.addEventListener("click", (e) => {
   if (!you) return;
-  if (you.mode !== "manual") return;
   const rect = canvas.getBoundingClientRect();
   const x = ((e.clientX - rect.left) / rect.width) * canvas.width;
   const y = ((e.clientY - rect.top) / rect.height) * canvas.height;
   if (!ws || ws.readyState !== WebSocket.OPEN) return;
 
+  // Any manual interaction takes over from H-Mode.
+  ensureManualFromUserInput();
+  if (you.mode !== "manual") return;
+
+  const world = canvasToWorld(x, y);
+
   if (pendingTarget) {
     if (Date.now() <= pendingTargetUntilMs) {
-      castSpell(pendingTarget.spell, x, y);
+      castSpell(pendingTarget.spell, world.x, world.y);
     }
     pendingTarget = null;
     pendingTargetUntilMs = 0;
@@ -2412,7 +2525,7 @@ canvas.addEventListener("click", (e) => {
     return;
   }
 
-  ws.send(JSON.stringify({ type: "set_goal", x, y }));
+  ws.send(JSON.stringify({ type: "set_goal", x: world.x, y: world.y }));
 });
 
 window.addEventListener("keydown", (e) => {
@@ -2440,7 +2553,6 @@ window.addEventListener("keyup", (e) => {
 function stepInput() {
   if (!ws || ws.readyState !== WebSocket.OPEN) return;
   if (!you) return;
-  if (you.mode !== "manual") return;
   const t = Date.now();
   // Mobile joystick feels better with a slightly higher send rate.
   if (t - lastMoveSentAt < 50) return;
@@ -2453,6 +2565,12 @@ function stepInput() {
   const dx = joyState.active ? joyState.dx : kdx;
   const dy = joyState.active ? joyState.dy : kdy;
   if (dx === 0 && dy === 0) return;
+
+  // If the player is in H-Mode but the user provides movement input, auto-takeover.
+  if (you.mode !== "manual") {
+    ensureManualFromUserInput();
+  }
+  if (you.mode !== "manual") return;
   ws.send(JSON.stringify({ type: "move", dx, dy }));
 }
 
@@ -2474,9 +2592,13 @@ function renderHeader() {
 
   // Mobile: show joystick only in manual mode.
   try {
-    const showJoy = isMobileLayout() && you.mode === "manual";
+    // Mobile: keep joystick visible so the user can always "take over" from H-Mode.
+    const showJoy = isMobileLayout();
     if (stageEl) stageEl.classList.toggle("has-joystick", showJoy);
-    if (joystickEl) joystickEl.hidden = !showJoy;
+    if (joystickEl) {
+      joystickEl.hidden = !showJoy;
+      joystickEl.classList.toggle("is-disabled", showJoy && you.mode !== "manual");
+    }
     if (!showJoy) {
       joyState.active = false;
       joyState.dx = 0;
@@ -2675,32 +2797,40 @@ function draw() {
   if (!world) return;
   const t = Number(world.tileSize);
   if (!Number.isFinite(t) || t <= 0) return;
-  drawTerrain(t);
+  updateCamera();
 
-  drawDrops();
+  ctx.save();
+  try {
+    // Mobile zoom + camera follow: transform world space into screen space.
+    const z = Number(view.zoom || 1) || 1;
+    ctx.scale(z, z);
+    ctx.translate(-Number(view.camX || 0), -Number(view.camY || 0));
 
-  // fx
-  const now = Date.now();
-  // NOTE: createdAt comes from server time. If the client clock is behind, age can be negative.
-  // Clamp to avoid negative radii / IndexSizeError in Canvas APIs (which can cause visible flicker).
-  const clamp01 = (x) => (x < 0 ? 0 : x > 1 ? 1 : x);
-  recentFx = (Array.isArray(recentFx) ? recentFx : []).filter((fx) => {
-    const created = Date.parse(fx.createdAt);
-    if (!Number.isFinite(created)) return false;
-    const age = Math.max(0, now - created);
-    return age < 1400;
-  });
-  for (const fx of recentFx) {
-    ctx.save();
-    try {
+    drawTerrain(t);
+
+    drawDrops();
+
+    // fx
+    const now = Date.now();
+    // NOTE: createdAt comes from server time. If the client clock is behind, age can be negative.
+    // Clamp to avoid negative radii / IndexSizeError in Canvas APIs (which can cause visible flicker).
+    recentFx = (Array.isArray(recentFx) ? recentFx : []).filter((fx) => {
       const created = Date.parse(fx.createdAt);
-      const age = Number.isFinite(created) ? Math.max(0, now - created) : 999999;
-      const p = clamp01(1 - age / 1200);
-      ctx.globalAlpha = p;
+      if (!Number.isFinite(created)) return false;
+      const age = Math.max(0, now - created);
+      return age < 1400;
+    });
+    for (const fx of recentFx) {
+      ctx.save();
+      try {
+        const created = Date.parse(fx.createdAt);
+        const age = Number.isFinite(created) ? Math.max(0, now - created) : 999999;
+        const p = clamp01(1 - age / 1200);
+        ctx.globalAlpha = p;
 
-      const type = String(fx.type || "spark");
-      const r = 18 + (1 - p) * 44;
-      const payload = fx.payload || {};
+        const type = String(fx.type || "spark");
+        const r = 18 + (1 - p) * 44;
+        const payload = fx.payload || {};
 
     const palette = {
       spark: { fill: "rgba(184,135,27,0.20)", stroke: "rgba(184,135,27,0.55)" },
@@ -2903,25 +3033,25 @@ function draw() {
       ctx.arc(fx.x, fx.y, r * 0.55, 0, Math.PI * 2);
       ctx.stroke();
     }
-    } catch {
-      // Never let a single bad fx event blank the whole frame.
-    } finally {
-      ctx.restore();
+      } catch {
+        // Never let a single bad fx event blank the whole frame.
+      } finally {
+        ctx.restore();
+      }
     }
-  }
 
-  try {
-    drawMonsters();
-  } catch {
-    // ignore
-  }
-
-  // players
-  const ps = Array.isArray(state.players) ? state.players : [];
-  for (const p of ps) {
-    ctx.save();
     try {
-      const isYou = p.id === playerId;
+      drawMonsters();
+    } catch {
+      // ignore
+    }
+
+    // players
+    const ps = Array.isArray(state.players) ? state.players : [];
+    for (const p of ps) {
+      ctx.save();
+      try {
+        const isYou = p.id === playerId;
     // shadow
     ctx.beginPath();
     ctx.fillStyle = "rgba(9,19,36,0.18)";
@@ -3004,11 +3134,14 @@ function draw() {
     if (speech && Date.now() - speech.atMs < 4500) {
       drawSpeechBubble(p.x, hasAvatar ? avatarTopY - 40 : p.y - 44, speech.text);
     }
-    } catch {
-      // Never let a single bad avatar/state frame blank the whole render.
-    } finally {
-      ctx.restore();
+      } catch {
+        // Never let a single bad avatar/state frame blank the whole render.
+      } finally {
+        ctx.restore();
+      }
     }
+  } finally {
+    ctx.restore();
   }
 
   drawMinimap();

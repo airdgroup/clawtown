@@ -2044,8 +2044,8 @@ app.post("/api/bot/link", (req, res) => {
   persistPlayerIfNeeded(p, true);
   persistBotTokens();
   p.linkedBot = true;
-  // Linking is an explicit bot action (but should not be treated as "controlling" for long).
-  markBotAction(p);
+  // Linking is a handshake. Mark the bot as "seen online" but do not suppress server-side autopilot.
+  markBotSeen(p);
 
   pushChat({
     kind: "system",

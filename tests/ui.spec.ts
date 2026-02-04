@@ -324,6 +324,10 @@ test('Mobile: bottom drawer collapses and map stays playable', async ({ page }) 
   expect(ab!.x + ab!.width).toBeLessThanOrEqual(390 + 2);
   // Actionbar should be in the lower band of the screen (not mid-map).
   expect(ab!.y).toBeGreaterThan(gameBox!.y + gameBox!.height * 0.55);
+  // Joystick and actionbar must not overlap (two-thumb ergonomics).
+  const overlapX = Math.max(0, Math.min(joy!.x + joy!.width, ab!.x + ab!.width) - Math.max(joy!.x, ab!.x));
+  const overlapY = Math.max(0, Math.min(joy!.y + joy!.height, ab!.y + ab!.height) - Math.max(joy!.y, ab!.y));
+  expect(overlapX * overlapY).toBeLessThan(4);
 
   // Slot 4 (ATK/job skill) must stay fully within the viewport (tappable on phones).
   const slot4 = await page.locator('#slot4').boundingBox();
@@ -354,6 +358,36 @@ test('Mobile landscape: panel drawer toggles with menu button', async ({ page })
 
   await page.click('#mobileMenu');
   await expect(page.locator('#panel')).toHaveClass(/is-collapsed/);
+});
+
+test('Mobile: joystick input takes over from H-Mode (agent) to manual', async ({ page }) => {
+  await resetWorld(page);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');
+  await waitForFonts(page);
+  await closeOnboarding(page);
+
+  await expect(page.locator('#joystick')).toBeVisible();
+  // Mode buttons live in the Character panel; open the drawer first.
+  await page.locator('#mobileMenu').click();
+  await expect(page.locator('#panel')).not.toHaveClass(/is-collapsed/);
+  await page.locator('#modeAgent').click();
+  await page.waitForFunction(() => (window as any).__ct?.you?.mode === 'agent');
+
+  // Close the drawer so gameplay controls receive pointer events.
+  await page.locator('#mobileMenu').click();
+  await expect(page.locator('#panel')).toHaveClass(/is-collapsed/);
+
+  // Drag the joystick slightly.
+  const joy = page.locator('#joystick');
+  const box = await joy.boundingBox();
+  expect(box).toBeTruthy();
+  await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box!.x + box!.width / 2 + 30, box!.y + box!.height / 2);
+  await page.mouse.up();
+
+  await page.waitForFunction(() => (window as any).__ct?.you?.mode === 'manual');
 });
 
 test('Mobile landscape: page can scroll a bit (Safari chrome can collapse)', async ({ browser }) => {
