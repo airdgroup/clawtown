@@ -22,6 +22,11 @@ async function resetWorld(page: any) {
   expect(data?.ok).toBeTruthy();
 }
 
+async function openMoreTab(page: any, tab: 'board' | 'party' | 'hat') {
+  await page.locator('#moreBtn').click();
+  await page.locator(`#moreMenu .ui-more-item[data-tab="${tab}"]`).click();
+}
+
 test('UI baseline looks polished', async ({ page }) => {
   await resetWorld(page);
   await page.goto('/');
@@ -151,13 +156,162 @@ test('Combat: hotkey 1 damages a nearby monster', async ({ page }) => {
   expect(changed).toBeTruthy();
 });
 
+test('Input: arrow keys do not scroll the page', async ({ page }) => {
+  await resetWorld(page);
+  await page.goto('/');
+  await waitForFonts(page);
+  await closeOnboarding(page);
+
+  const y0 = await page.evaluate(() => window.scrollY);
+  expect(y0).toBe(0);
+  await page.keyboard.press('ArrowDown');
+  await page.waitForTimeout(120);
+  const y1 = await page.evaluate(() => window.scrollY);
+  expect(y1).toBe(0);
+});
+
+test('World: spawns 5 colored slimes', async ({ page }) => {
+  await resetWorld(page);
+  await page.goto('/');
+  await waitForFonts(page);
+  await closeOnboarding(page);
+
+  const out = await page.waitForFunction(() => {
+    const mons = (globalThis as any).__ct?.state?.monsters;
+    if (!Array.isArray(mons) || mons.length === 0) return null;
+    const slimes = mons.filter((m: any) => m && m.alive && m.kind === 'slime');
+    if (slimes.length < 5) return null;
+    const colors = slimes.map((m: any) => String(m.color || '')).filter(Boolean);
+    const uniq = new Set(colors);
+    return { slimeCount: slimes.length, colorCount: colors.length, uniqCount: uniq.size };
+  });
+
+  const v = await out.jsonValue();
+  expect(v.slimeCount).toBeGreaterThanOrEqual(5);
+  expect(v.colorCount).toBeGreaterThanOrEqual(5);
+  expect(v.uniqCount).toBeGreaterThanOrEqual(5);
+});
+
+test('Layout: right panel scroll does not move map', async ({ page }) => {
+  await resetWorld(page);
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.goto('/');
+  await waitForFonts(page);
+  await closeOnboarding(page);
+
+  const canvas = page.locator('#game');
+  const body = page.locator('.ui-window-body');
+  await expect(body).toBeVisible();
+
+  const y0 = await page.evaluate(() => window.scrollY);
+  expect(y0).toBe(0);
+
+  const box0 = await canvas.boundingBox();
+  expect(box0).toBeTruthy();
+
+  const st0 = await page.evaluate(() => {
+    const el = document.querySelector('.ui-window-body');
+    return el ? (el as HTMLElement).scrollTop : -1;
+  });
+  expect(st0).toBe(0);
+
+  await body.hover();
+  await page.mouse.wheel(0, 900);
+  await page.waitForTimeout(150);
+
+  const st1 = await page.evaluate(() => {
+    const el = document.querySelector('.ui-window-body');
+    return el ? (el as HTMLElement).scrollTop : -1;
+  });
+  expect(st1).toBeGreaterThan(0);
+
+  const y1 = await page.evaluate(() => window.scrollY);
+  expect(y1).toBe(0);
+
+  const box1 = await canvas.boundingBox();
+  expect(box1).toBeTruthy();
+  expect(Math.round((box1 as any).y)).toBe(Math.round((box0 as any).y));
+});
+
+test('Mobile: bottom drawer collapses and map stays playable', async ({ page }) => {
+  await resetWorld(page);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');
+  await waitForFonts(page);
+  await closeOnboarding(page);
+
+  await expect(page.locator('#panel')).toHaveClass(/is-collapsed/);
+  await expect(page.locator('#mobileMenu')).toBeVisible();
+  await expect(page.locator('#joystick')).toBeVisible();
+
+  const gameBox = await page.locator('#game').boundingBox();
+  expect(gameBox).toBeTruthy();
+  expect(gameBox!.width).toBeGreaterThan(360);
+
+  const joy = await page.locator('#joystick').boundingBox();
+  expect(joy).toBeTruthy();
+  // Joystick should live in the lower area (not covering the top/right of the map).
+  expect(joy!.y).toBeGreaterThan(gameBox!.y + gameBox!.height * 0.55);
+  expect(joy!.x).toBeLessThan(gameBox!.x + gameBox!.width * 0.45);
+
+  const ab = await page.locator('#actionbar').boundingBox();
+  expect(ab).toBeTruthy();
+  expect(ab!.x + ab!.width).toBeLessThanOrEqual(390 + 2);
+  // Actionbar should be in the lower band of the screen (not mid-map).
+  expect(ab!.y).toBeGreaterThan(gameBox!.y + gameBox!.height * 0.55);
+
+  await page.click('#mobileMenu');
+  await expect(page.locator('#panel')).not.toHaveClass(/is-collapsed/);
+});
+
+test('Mobile landscape: panel drawer toggles with menu button', async ({ page }) => {
+  await resetWorld(page);
+  await page.setViewportSize({ width: 844, height: 390 });
+  await page.goto('/');
+  await waitForFonts(page);
+  await closeOnboarding(page);
+
+  await expect(page.locator('#mobileMenu')).toBeVisible();
+  await expect(page.locator('#panel')).toHaveClass(/is-collapsed/);
+
+  await page.click('#mobileMenu');
+  await expect(page.locator('#panel')).not.toHaveClass(/is-collapsed/);
+
+  await page.click('#mobileMenu');
+  await expect(page.locator('#panel')).toHaveClass(/is-collapsed/);
+});
+
+test('Mobile landscape: page can scroll a bit (Safari chrome can collapse)', async ({ browser }) => {
+  const ctx = await browser.newContext({
+    viewport: { width: 1024, height: 600 },
+    isMobile: true,
+    hasTouch: true,
+  });
+  const page = await ctx.newPage();
+
+  await resetWorld(page);
+  await page.goto('/');
+  await waitForFonts(page);
+  await closeOnboarding(page);
+
+  // Ensure we actually have some scroll space.
+  const delta = await page.evaluate(() => {
+    const before = window.scrollY;
+    window.scrollTo(0, 60);
+    return Math.max(0, window.scrollY - before);
+  });
+  expect(delta).toBeGreaterThan(0);
+
+  await ctx.close();
+});
+
 test('Sorting Hat produces a result', async ({ page }) => {
   await resetWorld(page);
   await page.goto('/');
   await waitForFonts(page);
   await closeOnboarding(page);
 
-  await page.locator('.ui-tab[data-tab="hat"]').click();
+  await openMoreTab(page, 'hat');
   await expect(page.locator('#hatOptions')).toBeVisible();
 
   await page.locator('#hatOptions .hat-choice', { hasText: '戰鬥' }).click();
@@ -204,6 +358,504 @@ test('Join token can be used to link a bot', async ({ page }) => {
   await page.request.post('/api/bot/link', { data: { joinCode: parts[2] } });
 
   await expect(page.locator('#hudBot')).toContainText('已連結');
+});
+
+test('Join token is reusable (re-link returns botToken again)', async ({ page }) => {
+  await resetWorld(page);
+  await page.goto('/');
+  await waitForFonts(page);
+  await closeOnboarding(page);
+
+  await page.locator('.ui-tab[data-tab="link"]').click();
+  await page.locator('#makeJoinCode').click();
+  await expect(page.locator('#joinToken')).toHaveValue(/^CT1\|http:\/\//);
+  const joinToken = await page.locator('#joinToken').inputValue();
+
+  const link1 = await page.request.post('/api/bot/link', { data: { joinToken } });
+  const linkData1 = await link1.json();
+  expect(linkData1.ok).toBeTruthy();
+  expect(linkData1.botToken).toBeTruthy();
+
+  const link2 = await page.request.post('/api/bot/link', { data: { joinToken } });
+  const linkData2 = await link2.json();
+  expect(linkData2.ok).toBeTruthy();
+  expect(linkData2.botToken).toBeTruthy();
+  expect(linkData2.botToken).toBe(linkData1.botToken);
+});
+
+test('Join tokens survive re-issuing (generating a new join token does not invalidate old tokens)', async ({ page }) => {
+  await resetWorld(page);
+  await page.goto('/');
+  await waitForFonts(page);
+  await closeOnboarding(page);
+
+  await page.locator('.ui-tab[data-tab="link"]').click();
+
+  await page.locator('#makeJoinCode').click();
+  await expect(page.locator('#joinToken')).toHaveValue(/^CT1\|http:\/\//);
+  const token1 = await page.locator('#joinToken').inputValue();
+
+  // Issue again (users often click this multiple times when onboarding a bot).
+  await page.locator('#makeJoinCode').click();
+  await expect(page.locator('#joinToken')).toHaveValue(/^CT1\|http:\/\//);
+  const token2 = await page.locator('#joinToken').inputValue();
+
+  // Both tokens should link successfully (old one should not be invalidated).
+  const link1 = await page.request.post('/api/bot/link', { data: { joinToken: token1 } });
+  const linkData1 = await link1.json();
+  expect(linkData1.ok).toBeTruthy();
+  expect(linkData1.botToken).toBeTruthy();
+
+  const link2 = await page.request.post('/api/bot/link', { data: { joinToken: token2 } });
+  const linkData2 = await link2.json();
+  expect(linkData2.ok).toBeTruthy();
+  expect(linkData2.botToken).toBeTruthy();
+});
+
+test('Link Bot: connect command is generated with join token', async ({ page }) => {
+  await resetWorld(page);
+  await page.goto('/');
+  await waitForFonts(page);
+  await closeOnboarding(page);
+
+  await page.locator('.ui-tab[data-tab="link"]').click();
+  await page.locator('#makeJoinCode').click();
+
+  await expect(page.locator('#joinToken')).toHaveValue(/^CT1\|http:\/\//);
+  const joinToken = await page.locator('#joinToken').inputValue();
+
+  const prompt = await page.locator('#botPrompt').inputValue();
+  expect(prompt).toContain(joinToken);
+  // Connect prompt should not assume any CLI exists; it should point to skill.md + include the join token.
+  expect(prompt).toContain('https://clawtown.io/skill.md');
+  // When sandboxJoinToken is available, we should also surface it to reduce Docker gap.
+  const sandboxJoinToken = await page.locator('#sandboxJoinToken').inputValue();
+  if (sandboxJoinToken) {
+    expect(sandboxJoinToken).toContain('host.docker.internal');
+    expect(prompt).toContain(sandboxJoinToken);
+  }
+});
+
+test('Link Bot (production-style): HTTP steps are included (no CLI dependency)', async ({ page }) => {
+  await resetWorld(page);
+  await page.goto('/');
+  await waitForFonts(page);
+  await closeOnboarding(page);
+
+  await page.locator('.ui-tab[data-tab="link"]').click();
+
+  const token = 'CT1|https://clawtown.io|ABC123';
+  await page.evaluate((t) => {
+    const join = document.querySelector('#joinToken');
+    if (join) (join as HTMLInputElement).value = t;
+    const out = (window as any).__ctBuildConnectBlock
+      ? (window as any).__ctBuildConnectBlock({ joinToken: t, sandboxJoinToken: '' })
+      : '';
+    const el = document.querySelector('#botPrompt');
+    if (el) (el as HTMLTextAreaElement).value = out;
+  }, token);
+
+  const prompt = await page.locator('#botPrompt').inputValue();
+  expect(prompt).toContain('https://clawtown.io/skill.md');
+  expect(prompt).toContain(token);
+});
+
+test('Tooltips: hovering ATK shows explanation', async ({ page }) => {
+  await resetWorld(page);
+  await page.goto('/');
+  await waitForFonts(page);
+  await closeOnboarding(page);
+
+  // Use English so assertions are stable.
+  await page.locator('#langEn').click();
+
+  await page.locator('.ui-tab[data-tab="inventory"]').click();
+  await expect(page.locator('#atk')).toBeVisible();
+
+  await page.hover('#atk');
+  await expect(page.locator('#ctTooltip')).toHaveClass(/is-visible/);
+  await expect(page.locator('#ctTooltip')).toContainText('Attack Power');
+});
+
+test('Avatar: upload sets a custom avatar and it is served as PNG', async ({ page }) => {
+  const fs = require('fs');
+  const os = require('os');
+  const path = require('path');
+  const { PNG } = require('pngjs');
+
+  await resetWorld(page);
+  await page.goto('/');
+  await waitForFonts(page);
+  await closeOnboarding(page);
+
+  // Create a tiny deterministic PNG and upload it.
+  const tmp = path.join(os.tmpdir(), `ct-avatar-${Date.now()}-${Math.random().toString(16).slice(2)}.png`);
+  const png = new PNG({ width: 32, height: 32 });
+  for (let y = 0; y < png.height; y++) {
+    for (let x = 0; x < png.width; x++) {
+      const i = (png.width * y + x) << 2;
+      png.data[i] = 255;
+      png.data[i + 1] = 120;
+      png.data[i + 2] = 60;
+      png.data[i + 3] = 255;
+    }
+  }
+  fs.writeFileSync(tmp, PNG.sync.write(png));
+
+  await page.setInputFiles('#avatarFile', tmp);
+
+  const info = await page.waitForFunction(() => {
+    const you = (window as any).__ct?.you;
+    if (!you) return null;
+    if (!you.avatarVersion || Number(you.avatarVersion) <= 0) return null;
+    return { id: you.id, v: you.avatarVersion };
+  });
+  const v = await info.jsonValue();
+  expect(v.id).toBeTruthy();
+  expect(v.v).toBeGreaterThan(0);
+
+  const resp = await page.request.get(`/api/avatars/${encodeURIComponent(v.id)}.png?v=${encodeURIComponent(String(v.v))}`);
+  expect(resp.ok()).toBeTruthy();
+  const ct = resp.headers()['content-type'] || '';
+  expect(ct).toContain('image/png');
+  const body = await resp.body();
+  expect(body.slice(0, 8).toString('hex')).toBe('89504e470d0a1a0a');
+  expect(body.length).toBeGreaterThan(100);
+});
+
+test('Avatar: background removal makes corner pixels transparent (beta)', async ({ page }) => {
+  const fs = require('fs');
+  const os = require('os');
+  const path = require('path');
+  const { PNG } = require('pngjs');
+
+  await resetWorld(page);
+  await page.goto('/');
+  await waitForFonts(page);
+  await closeOnboarding(page);
+
+  // Ensure the toggle exists and is enabled.
+  const bg = page.locator('#avatarBgToggle');
+  await expect(bg).toBeVisible();
+  const pressed = await bg.getAttribute('aria-pressed');
+  if (pressed !== 'true') await bg.click();
+
+  // Create a PNG with a solid background and a small foreground square.
+  const tmp = path.join(os.tmpdir(), `ct-avatar-bg-${Date.now()}-${Math.random().toString(16).slice(2)}.png`);
+  const png = new PNG({ width: 64, height: 64 });
+  for (let y = 0; y < png.height; y++) {
+    for (let x = 0; x < png.width; x++) {
+      const i = (png.width * y + x) << 2;
+      // light gray background
+      png.data[i] = 235;
+      png.data[i + 1] = 235;
+      png.data[i + 2] = 235;
+      png.data[i + 3] = 255;
+    }
+  }
+  for (let y = 22; y < 42; y++) {
+    for (let x = 22; x < 42; x++) {
+      const i = (png.width * y + x) << 2;
+      png.data[i] = 255;
+      png.data[i + 1] = 120;
+      png.data[i + 2] = 60;
+      png.data[i + 3] = 255;
+    }
+  }
+  fs.writeFileSync(tmp, PNG.sync.write(png));
+
+  await page.setInputFiles('#avatarFile', tmp);
+
+  const info = await page.waitForFunction(() => {
+    const you = (window as any).__ct?.you;
+    if (!you) return null;
+    if (!you.avatarVersion || Number(you.avatarVersion) <= 0) return null;
+    return { id: you.id, v: you.avatarVersion };
+  });
+  const v = await info.jsonValue();
+
+  const resp = await page.request.get(`/api/avatars/${encodeURIComponent(v.id)}.png?v=${encodeURIComponent(String(v.v))}`);
+  expect(resp.ok()).toBeTruthy();
+  const body = await resp.body();
+  const out = PNG.sync.read(body);
+  // Top-left pixel should be fully transparent after edge background removal.
+  const a = out.data[3];
+  expect(a).toBe(0);
+});
+
+test('Coach: first kill celebration shows a single toast (no flashing)', async ({ page }) => {
+  await resetWorld(page);
+
+  // Enable coach even in CT_TEST.
+  await page.goto('/?coach=1');
+  await waitForFonts(page);
+  await closeOnboarding(page);
+
+  // Use English so assertions are stable.
+  await page.locator('#langEn').click();
+
+  // Move a bit (coach step: move -> attack). Use debug teleport to make it deterministic.
+  const you0 = await page.waitForFunction(() => (window as any).__ct?.you || null);
+  const y0 = await you0.jsonValue();
+  expect(typeof y0?.x).toBe('number');
+  expect(typeof y0?.y).toBe('number');
+
+  const playerId = await page.evaluate(() => {
+    try {
+      return JSON.parse(localStorage.getItem('clawtown.player') || 'null')?.playerId || null;
+    } catch {
+      return null;
+    }
+  });
+  expect(playerId).toBeTruthy();
+
+  const tp = await page.request.post('/api/debug/teleport', { data: { playerId, x: y0.x + 64, y: y0.y } });
+  expect(tp.ok()).toBeTruthy();
+
+  // Wait until the coach reaches the attack step.
+  const bubble = page.locator('.ct-coach-bubble');
+  await expect(bubble).toBeVisible();
+  await expect(bubble).toContainText('Aha moment');
+
+  // Spawn a low-HP slime right on top of the player, then cast to kill it.
+  const pos = await page.waitForFunction(() => {
+    const you = (window as any).__ct?.you;
+    if (!you) return null;
+    if (typeof you.x !== 'number' || typeof you.y !== 'number') return null;
+    return { x: you.x, y: you.y };
+  });
+  const p = await pos.jsonValue();
+
+  const spawn = await page.request.post('/api/debug/spawn-monster', { data: { x: p.x, y: p.y, kind: 'slime', maxHp: 1, hp: 1, name: 'Poring' } });
+  expect(spawn.ok()).toBeTruthy();
+
+  // Ensure key handlers aren't blocked by focused inputs; click the slot directly.
+  await page.locator('#game').click({ position: { x: 20, y: 20 } });
+  await page.locator('#slot4').click();
+
+  // Wait until the kill counter increases (server tick + WS state).
+  await page.waitForFunction(() => {
+    const you = (window as any).__ct?.you;
+    return you && you.meta && Number(you.meta.kills || 0) >= 1;
+  });
+
+  // Wait until the coach toast appears (done step).
+  await expect(bubble).toContainText('First slime down');
+
+  // No flashing highlight left behind.
+  await expect(page.locator('.ct-coach-highlight')).toHaveCount(0);
+
+  // It should auto-dismiss and not re-appear.
+  await page.waitForTimeout(3400);
+  await expect(bubble).toBeHidden();
+  await page.waitForTimeout(800);
+  await expect(bubble).toBeHidden();
+});
+
+test('Public: /skill.md is served', async ({ page }) => {
+  const res = await page.request.get('/skill.md');
+  expect(res.ok()).toBeTruthy();
+  const text = await res.text();
+  expect(text).toContain('Clawtown Bot Skill');
+  expect(text).toContain('CT1|<baseUrl>|<joinCode>');
+  expect(text).toContain('/api/bot/link');
+});
+
+test('Bot: can fetch minimap.png (PNG)', async ({ page }) => {
+  await resetWorld(page);
+  await page.goto('/');
+  await waitForFonts(page);
+  await closeOnboarding(page);
+
+  const playerId = await page.evaluate(() => {
+    try {
+      return JSON.parse(localStorage.getItem('clawtown.player') || 'null')?.playerId || null;
+    } catch {
+      return null;
+    }
+  });
+  expect(playerId).toBeTruthy();
+
+  const join = await page.request.post('/api/join-codes', { data: { playerId } });
+  const joinData = await join.json();
+  expect(joinData.ok).toBeTruthy();
+
+  const link = await page.request.post('/api/bot/link', { data: { joinCode: joinData.joinCode } });
+  const linkData = await link.json();
+  expect(linkData.ok).toBeTruthy();
+
+  const resp = await page.request.get('/api/bot/minimap.png', {
+    headers: { Authorization: `Bearer ${linkData.botToken}` },
+  });
+  expect(resp.ok()).toBeTruthy();
+  const ct = resp.headers()['content-type'] || '';
+  expect(ct).toContain('image/png');
+  const body = await resp.body();
+  expect(body.length).toBeGreaterThan(1000);
+  // PNG signature: 89 50 4E 47 0D 0A 1A 0A
+  expect(body.slice(0, 8).toString('hex')).toBe('89504e470d0a1a0a');
+});
+
+test('Bot: can fetch map.png (map-only screenshot)', async ({ page }) => {
+  await resetWorld(page);
+  await page.goto('/');
+  await waitForFonts(page);
+  await closeOnboarding(page);
+
+  const playerId = await page.evaluate(() => {
+    try {
+      return JSON.parse(localStorage.getItem('clawtown.player') || 'null')?.playerId || null;
+    } catch {
+      return null;
+    }
+  });
+  expect(playerId).toBeTruthy();
+
+  const join = await page.request.post('/api/join-codes', { data: { playerId } });
+  const joinData = await join.json();
+  expect(joinData.ok).toBeTruthy();
+
+  const link = await page.request.post('/api/bot/link', { data: { joinCode: joinData.joinCode } });
+  const linkData = await link.json();
+  expect(linkData.ok).toBeTruthy();
+
+  const resp = await page.request.get('/api/bot/map.png', {
+    headers: { Authorization: `Bearer ${linkData.botToken}` },
+  });
+  expect(resp.ok()).toBeTruthy();
+  const ct = resp.headers()['content-type'] || '';
+  expect(ct).toContain('image/png');
+  const body = await resp.body();
+  expect(body.length).toBeGreaterThan(2_000);
+  // PNG signature: 89 50 4E 47 0D 0A 1A 0A
+  expect(body.slice(0, 8).toString('hex')).toBe('89504e470d0a1a0a');
+  // PNG width/height in IHDR.
+  const width = body.readUInt32BE(16);
+  const height = body.readUInt32BE(20);
+  expect(width).toBe(960);
+  expect(height).toBe(576);
+});
+
+test('Bot: status endpoint returns concise JSON', async ({ page }) => {
+  await resetWorld(page);
+  await page.goto('/');
+  await waitForFonts(page);
+  await closeOnboarding(page);
+
+  const playerId = await page.evaluate(() => {
+    try {
+      return JSON.parse(localStorage.getItem('clawtown.player') || 'null')?.playerId || null;
+    } catch {
+      return null;
+    }
+  });
+  expect(playerId).toBeTruthy();
+
+  const join = await page.request.post('/api/join-codes', { data: { playerId } });
+  const joinData = await join.json();
+  expect(joinData.ok).toBeTruthy();
+
+  const link = await page.request.post('/api/bot/link', { data: { joinCode: joinData.joinCode } });
+  const linkData = await link.json();
+  expect(linkData.ok).toBeTruthy();
+
+  const resp = await page.request.get('/api/bot/status', {
+    headers: { Authorization: `Bearer ${linkData.botToken}` },
+  });
+  expect(resp.ok()).toBeTruthy();
+  const data = await resp.json();
+  expect(data?.ok).toBeTruthy();
+  expect(data?.you?.id).toBeTruthy();
+  expect(typeof data?.you?.level).toBe('number');
+  expect(typeof data?.you?.hp).toBe('number');
+  expect(data?.nearby?.radiusTiles).toBe(6);
+});
+
+test('Bot: thought endpoint updates state (thought bubble)', async ({ page }) => {
+  await resetWorld(page);
+  await page.goto('/');
+  await waitForFonts(page);
+  await closeOnboarding(page);
+
+  const playerId = await page.evaluate(() => {
+    try {
+      return JSON.parse(localStorage.getItem('clawtown.player') || 'null')?.playerId || null;
+    } catch {
+      return null;
+    }
+  });
+  expect(playerId).toBeTruthy();
+
+  const join = await page.request.post('/api/join-codes', { data: { playerId } });
+  const joinData = await join.json();
+  expect(joinData.ok).toBeTruthy();
+
+  const link = await page.request.post('/api/bot/link', { data: { joinCode: joinData.joinCode } });
+  const linkData = await link.json();
+  expect(linkData.ok).toBeTruthy();
+  const botToken = linkData.botToken;
+
+  const thoughtText = 'I think we should hunt slimes near the plaza.';
+  const post = await page.request.post('/api/bot/thought', {
+    headers: { Authorization: `Bearer ${botToken}` },
+    data: { text: thoughtText },
+  });
+  expect(post.ok()).toBeTruthy();
+
+  await page.waitForFunction(
+    (t) => {
+      const st = (window as any).__ct?.state;
+      const you = (window as any).__ct?.you;
+      if (!st || !you) return false;
+      const p = (st.players || []).find((pp: any) => pp && pp.id === you.id);
+      return p && p.bot && String(p.bot.thought || '').includes(t);
+    },
+    thoughtText,
+    { timeout: 8000 }
+  );
+});
+
+test('Bot: events endpoint returns kill events (cursor-based)', async ({ page }) => {
+  await resetWorld(page);
+  await page.goto('/');
+  await waitForFonts(page);
+  await closeOnboarding(page);
+
+  const playerId = await page.evaluate(() => {
+    try {
+      return JSON.parse(localStorage.getItem('clawtown.player') || 'null')?.playerId || null;
+    } catch {
+      return null;
+    }
+  });
+  expect(playerId).toBeTruthy();
+
+  // Put player at a deterministic position and spawn a 1HP slime on top.
+  await page.request.post('/api/debug/teleport', { data: { playerId, x: 520, y: 300 } });
+  await page.request.post('/api/debug/spawn-monster', { data: { id: 'm_evt_slime', kind: 'slime', name: 'Event Poring', x: 520, y: 300, maxHp: 1, hp: 1 } });
+
+  const join = await page.request.post('/api/join-codes', { data: { playerId } });
+  const joinData = await join.json();
+  expect(joinData.ok).toBeTruthy();
+
+  const link = await page.request.post('/api/bot/link', { data: { joinCode: joinData.joinCode } });
+  const linkData = await link.json();
+  expect(linkData.ok).toBeTruthy();
+  const botToken = linkData.botToken;
+
+  // Kill it.
+  await page.request.post('/api/bot/cast', { headers: { Authorization: `Bearer ${botToken}` }, data: { spell: 'signature' } });
+
+  // Fetch events from cursor 0.
+  const resp = await page.request.get('/api/bot/events?cursor=0&limit=30', {
+    headers: { Authorization: `Bearer ${botToken}` },
+  });
+  expect(resp.ok()).toBeTruthy();
+  const data = await resp.json();
+  expect(data?.ok).toBeTruthy();
+  expect(Array.isArray(data?.events)).toBeTruthy();
+  expect(typeof data?.nextCursor).toBe('number');
+  expect((data.events as any[]).some((e: any) => e && e.kind === 'kill' && String(e.text || '').includes('Event Poring'))).toBeTruthy();
 });
 
 test('Skill 4: targeted fireball damages monsters', async ({ page }) => {
@@ -295,6 +947,9 @@ test('Bot tab shows [BOT] thoughts', async ({ page }) => {
   await page.locator('#chatInput').fill('[BOT] planning: hunt slimes, save for gear');
   await page.locator('#chatSend').click();
 
+  // Switch UI language to English so Bot Thoughts view shows English entries.
+  await page.locator('#langEn').click();
+
   await page.locator('.ui-tab[data-tab="bot"]').click();
   await expect(page.locator('#botLog')).toContainText('planning: hunt slimes');
 });
@@ -337,6 +992,23 @@ test('VFX: arrow cast produces arrow fx', async ({ page }) => {
     const fx = (window as any).__ct?.recentFx;
     if (!Array.isArray(fx)) return false;
     return fx.some((e: any) => String(e?.type || '') === 'arrow');
+  });
+});
+
+test('VFX: future-dated FX does not crash canvas (no negative radius)', async ({ page }) => {
+  await resetWorld(page);
+  await page.goto('/');
+  await waitForFonts(page);
+  await closeOnboarding(page);
+
+  await page.waitForFunction(() => Boolean((window as any).__ctTest && (window as any).__ctTest.addFx && (window as any).__ctTest.drawOnce));
+
+  await page.evaluate(() => {
+    const api = (window as any).__ctTest;
+    const future = new Date(Date.now() + 2500).toISOString();
+    api.addFx({ id: 'fx_future_1', type: 'mark', x: 200, y: 160, createdAt: future, payload: {} });
+    api.addFx({ id: 'fx_future_2', type: 'spark', x: 260, y: 210, createdAt: future, payload: {} });
+    api.drawOnce();
   });
 });
 
@@ -554,6 +1226,141 @@ test('Persistence: inventory/equipment survives restart (CT_TEST)', async ({ pag
   await expect(page.locator('#zenny')).toContainText('25');
 });
 
+test('Stats: allocating STR increases ATK and persists (CT_TEST)', async ({ page }) => {
+  await resetWorld(page);
+  await page.goto('/');
+  await waitForFonts(page);
+  await closeOnboarding(page);
+
+  const playerId = await page.evaluate(() => {
+    try {
+      return JSON.parse(localStorage.getItem('clawtown.player') || 'null')?.playerId || null;
+    } catch {
+      return null;
+    }
+  });
+  expect(playerId).toBeTruthy();
+
+  await page.waitForFunction(() => {
+    const y = (window as any).__ct?.you;
+    return y && typeof y.level === 'number' && y.stats && typeof y.stats.atk === 'number';
+  });
+
+  const atkBeforeText = await page.locator('#atk').textContent();
+  const atkBefore = Number(String(atkBeforeText || '').replace(/[^0-9]/g, ''));
+  const strBeforeText = await page.locator('#statStrVal').textContent();
+  const strBefore = Number(String(strBeforeText || '').replace(/[^0-9]/g, ''));
+
+  await page.locator('#allocStr').click();
+
+  await page.waitForFunction(
+    (args: any) => {
+      const y = (window as any).__ct?.you;
+      if (!y) return false;
+      const atk = Math.floor((y.stats && y.stats.atk) || 0);
+      const str = Number((y.baseStats && y.baseStats.str) || 0);
+      return atk > args.atkBefore && str === args.strBefore + 1;
+    },
+    { atkBefore, strBefore },
+  );
+
+  await page.request.post('/api/debug/persist-flush', { data: { playerId } });
+  await page.request.post('/api/debug/restart-sim');
+
+  await page.reload();
+  await waitForFonts(page);
+
+  await page.waitForFunction(
+    (args: any) => {
+      const y = (window as any).__ct?.you;
+      if (!y) return false;
+      const str = Number((y.baseStats && y.baseStats.str) || 0);
+      return str === args.strAfter;
+    },
+    { strAfter: strBefore + 1 },
+  );
+
+  await expect(page.locator('#statStrVal')).toContainText(String(strBefore + 1));
+});
+
+test('Persistence: botToken + join token survive restart (CT_TEST)', async ({ page }) => {
+  await resetWorld(page);
+  await page.goto('/');
+  await waitForFonts(page);
+  await closeOnboarding(page);
+
+  const playerId = await page.evaluate(() => {
+    try {
+      return JSON.parse(localStorage.getItem('clawtown.player') || 'null')?.playerId || null;
+    } catch {
+      return null;
+    }
+  });
+  expect(playerId).toBeTruthy();
+
+  const join = await page.request.post('/api/join-codes', { data: { playerId } });
+  const joinData = await join.json();
+  expect(joinData.ok).toBeTruthy();
+  expect(joinData.joinCode).toBeTruthy();
+
+  const link1 = await page.request.post('/api/bot/link', { data: { joinCode: joinData.joinCode } });
+  const linkData1 = await link1.json();
+  expect(linkData1.ok).toBeTruthy();
+  expect(linkData1.botToken).toBeTruthy();
+
+  const status1 = await (await page.request.get('/api/bot/status', { headers: { Authorization: `Bearer ${linkData1.botToken}` } })).json();
+  expect(status1.ok).toBeTruthy();
+  expect(status1.you?.id).toBe(playerId);
+
+  // simulate restart (clears in-memory maps, reloads persisted join codes + bot tokens)
+  await page.request.post('/api/debug/restart-sim');
+
+  const status2 = await (await page.request.get('/api/bot/status', { headers: { Authorization: `Bearer ${linkData1.botToken}` } })).json();
+  expect(status2.ok).toBeTruthy();
+  expect(status2.you?.id).toBe(playerId);
+
+  // join token should still allow re-linking (even if no browser is connected after restart)
+  const link2 = await page.request.post('/api/bot/link', { data: { joinCode: joinData.joinCode } });
+  const linkData2 = await link2.json();
+  expect(linkData2.ok).toBeTruthy();
+  expect(linkData2.botToken).toBe(linkData1.botToken);
+});
+
+test('H-Mode: linked bot autopilot moves and fights', async ({ page }) => {
+  await resetWorld(page);
+  await page.goto('/');
+  await waitForFonts(page);
+  await closeOnboarding(page);
+
+  const playerId = await page.evaluate(() => {
+    try {
+      return JSON.parse(localStorage.getItem('clawtown.player') || 'null')?.playerId || null;
+    } catch {
+      return null;
+    }
+  });
+  expect(playerId).toBeTruthy();
+
+  await page.request.post('/api/debug/teleport', { data: { playerId, x: 520, y: 300 } });
+  await page.request.post('/api/debug/spawn-monster', { data: { id: 'm_auto_slime', kind: 'slime', name: 'Auto Poring', x: 520, y: 300, maxHp: 1, hp: 1 } });
+
+  // Link a bot (no external bot loop needed).
+  const join = await page.request.post('/api/join-codes', { data: { playerId } });
+  const joinData = await join.json();
+  expect(joinData.ok).toBeTruthy();
+  const link = await page.request.post('/api/bot/link', { data: { joinCode: joinData.joinCode } });
+  const linkData = await link.json();
+  expect(linkData.ok).toBeTruthy();
+
+  // Switch to H-Mode; autopilot should take over and kill the spawned slime.
+  await page.locator('#modeAgent').click();
+  await expect(page.locator('#kills')).toContainText('1', { timeout: 10_000 });
+
+  // Bot thoughts should show at least one line.
+  await page.locator('.ui-tab[data-tab="bot"]').click();
+  await expect(page.locator('#botLog')).toContainText('[BOT]');
+});
+
 test('Two players can chat (local multiplayer)', async ({ browser }) => {
   const ctxA = await browser.newContext({ viewport: { width: 1200, height: 780 } });
   const ctxB = await browser.newContext({ viewport: { width: 1200, height: 780 } });
@@ -615,14 +1422,14 @@ test('Party: create/join and share XP on elite kill', async ({ browser }) => {
   const tokB = (await (await b.request.post('/api/bot/link', { data: { joinCode: codeB } })).json()).botToken;
 
   // Create party on A, generate join code, join with B via UI.
-  await a.locator('.ui-tab[data-tab="party"]').click();
+  await openMoreTab(a, 'party');
   await a.locator('#partyCreate').click();
   await a.locator('#partyMakeCode').click();
   await a.waitForTimeout(250);
   const pcode = await a.locator('#partyCode').inputValue();
   expect(pcode).toMatch(/[A-Z2-9]{6}/);
 
-  await b.locator('.ui-tab[data-tab="party"]').click();
+  await openMoreTab(b, 'party');
   await b.locator('#partyJoinCode').fill(pcode);
   await b.locator('#partyJoin').click();
 
@@ -673,7 +1480,7 @@ test('Party: invalid invite code is rejected', async ({ browser }) => {
   await waitForFonts(p);
   await closeOnboarding(p);
 
-  await p.locator('.ui-tab[data-tab="party"]').click();
+  await openMoreTab(p, 'party');
   await p.locator('#partyJoinCode').fill('AAAAAA');
   await p.locator('#partyJoin').click();
 

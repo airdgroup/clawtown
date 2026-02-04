@@ -85,8 +85,12 @@ kill <pid>
 
 2) join code / botToken 失效
 
-- v1 是 in-memory：server 重啟後 join code / token 會失效。
-- 解法：用 UI 重新「取得 Join Token」，或用 Moltbot E2E 自動取得。
+- Join code 會存到 `.data/join_codes.json`（24h TTL），server 重啟後通常仍可用。
+- botToken 會存到 `.data/bot_tokens.json`，server 重啟後通常仍可用。
+- 解法：
+  - 直接用同一個 join token 再打一次 `POST /api/bot/link`（會回新的 botToken），再繼續呼叫 `/api/bot/status/world/...`。
+  - 或用 UI 重新「取得 Join Token」。
+  - 或用 Moltbot E2E 自動取得 join token + link。
 
 3) 我只想快速驗證 bot 真的會打怪
 
@@ -101,3 +105,36 @@ docker exec -w /Users/hejianzhi/Namecard/nai/sandbox-projects/moltbot/app moltbo
 測試細節
 
 請看：`TESTING.md`
+
+補充：如果你只有 Clawtown repo（沒有 Moltbot repo）
+
+1) 先用 UI 產生 Join Token
+- 右側「連結 Bot」→「取得 Join Token」
+
+2) 跑本 repo 內的純 curl loop
+
+```bash
+cd /Users/hejianzhi/Namecard/github/clawtown
+./scripts/cloudbot-local.sh 'CT1|http://localhost:3000|ABC123'
+```
+
+3) 看「寵物回報」（events/status + map.png）
+
+```bash
+cd /Users/hejianzhi/Namecard/github/clawtown
+node ./scripts/cloudbot-digest.mjs 'CT1|http://localhost:3000|ABC123' --pollMs 3000 --runForMs 30000 --outDir /tmp/clawtown --mapEveryMs 10000
+```
+
+部署提醒（自訂網域）
+
+- 如果你把 Clawtown 部署到 `https://clawtown.io`，建議在 server 環境變數設定：
+  - `CT_PUBLIC_BASE_URL=https://clawtown.io`
+  - 這樣 UI 產生的 Join Token 會固定用公開網域（而不是內部 host / proxy host）。
+
+補充：如果你有 Moltbot repo 但 Docker Desktop 沒開
+
+- 仍可在 host 直接跑 closed-loop（不經 sandbox）：
+
+```bash
+node /Users/hejianzhi/Namecard/nai/sandbox-projects/moltbot/app/scripts/clawtown-ui-e2e.mjs --baseUrl http://localhost:3000 --name MoltbotE2E --runForMs 20000
+```

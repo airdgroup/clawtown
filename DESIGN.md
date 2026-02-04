@@ -33,7 +33,7 @@ Leveling benefits (RO-inspired, simplified)
 
 We will keep it simple at first, but ensure leveling *matters*.
 
-Planned v1.1: Primary stats + stat points
+v1.1（已做在 feat/stats-v1）：Primary stats + stat points
 
 - Each level grants stat points.
 - Primary stats: STR/AGI/VIT/INT/DEX/LUK.
@@ -43,6 +43,17 @@ Planned v1.1: Primary stats + stat points
   - DEF (from VIT + armor)
   - ASPD (from AGI + weapon)
   - CRIT (from LUK + gear)
+
+下一步：簡化屬性（降低學習成本）
+
+- 目前 6 個屬性對一般玩家可能太重。
+- 預計改成 2-3 個高訊號屬性（例如 Power / Toughness / Speed），其他都變成衍生值或職業自動分配。
+- 原則：一眼看懂、按下去立刻有感、仍保留 RO-like 成長節奏。
+
+UX 原則（近期重點）
+
+- 左側地圖/技能列固定：玩家在右側看角色資訊時仍能一直看到戰鬥畫面。
+- Bot 連結要跨渠道：Telegram/WhatsApp/WebChat 都應該只要貼 join token（或點 deep link）就能完成連結；不要要求玩家理解 curl。
 
 Planned v1.2: Skill unlocks (small skill trees)
 

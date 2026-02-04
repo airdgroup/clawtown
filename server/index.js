@@ -5,8 +5,10 @@ const crypto = require("crypto");
 
 const express = require("express");
 const WebSocket = require("ws");
+const { PNG } = require("pngjs");
 
 const PORT = Number(process.env.PORT || 3000);
+const HOST = String(process.env.HOST || "127.0.0.1");
 
 const WORLD = {
   width: 30,
@@ -17,8 +19,16 @@ const WORLD = {
 
 const DATA_DIR = process.env.CT_DATA_DIR || path.join(__dirname, "..", ".data");
 const PLAYER_DATA_DIR = path.join(DATA_DIR, "players");
+const AVATAR_DATA_DIR = path.join(DATA_DIR, "avatars");
+const JOIN_CODES_DATA_PATH = path.join(DATA_DIR, "join_codes.json");
+const BOT_TOKENS_DATA_PATH = path.join(DATA_DIR, "bot_tokens.json");
 try {
   fs.mkdirSync(PLAYER_DATA_DIR, { recursive: true });
+} catch {
+  // ignore
+}
+try {
+  fs.mkdirSync(AVATAR_DATA_DIR, { recursive: true });
 } catch {
   // ignore
 }
@@ -26,6 +36,11 @@ try {
 function playerDataPath(playerId) {
   const id = String(playerId || "").replace(/[^a-zA-Z0-9_\-]/g, "");
   return path.join(PLAYER_DATA_DIR, `${id}.json`);
+}
+
+function avatarDataPath(playerId) {
+  const id = String(playerId || "").replace(/[^a-zA-Z0-9_\-]/g, "");
+  return path.join(AVATAR_DATA_DIR, `${id}.png`);
 }
 
 function readJsonSafe(filePath) {
@@ -43,15 +58,53 @@ function writeJsonAtomic(filePath, obj) {
   fs.renameSync(tmp, filePath);
 }
 
+function persistJoinCodes() {
+  try {
+    const out = [];
+    for (const [code, rec] of joinCodes.entries()) {
+      if (!code || !rec) continue;
+      out.push({
+        code,
+        playerId: rec.playerId,
+        expiresAt: rec.expiresAt,
+        createdAt: Number(rec.createdAt || 0) || undefined,
+      });
+    }
+    writeJsonAtomic(JOIN_CODES_DATA_PATH, { version: 2, savedAt: new Date().toISOString(), codes: out });
+  } catch {
+    // ignore
+  }
+}
+
+function persistBotTokens() {
+  try {
+    const out = [];
+    for (const [token, playerId] of botTokens.entries()) {
+      const t = String(token || "").trim();
+      const pid = String(playerId || "").trim();
+      if (!t || !pid) continue;
+      out.push({ token: t, playerId: pid });
+    }
+    writeJsonAtomic(BOT_TOKENS_DATA_PATH, { version: 1, savedAt: new Date().toISOString(), tokens: out });
+  } catch {
+    // ignore
+  }
+}
+
 function exportPlayerProgress(p) {
   return {
-    version: 1,
+    version: 2,
     savedAt: new Date().toISOString(),
     id: p.id,
     name: p.name,
+    avatarVersion: Math.max(0, Math.floor(Number(p.avatarVersion) || 0)),
     job: p.job,
     level: p.level,
     xp: p.xp,
+    hp: Math.max(0, Math.floor(Number(p.hp) || 0)),
+    maxHp: Math.max(1, Math.floor(Number(p.maxHp) || 1)),
+    statPoints: Math.max(0, Math.floor(Number(p.statPoints) || 0)),
+    baseStats: p.baseStats || null,
     zenny: Math.max(0, Math.floor(Number(p.zenny) || 0)),
     inventory: Array.isArray(p.inventory) ? p.inventory.slice(0, 200) : [],
     equipment: p.equipment || { weapon: null, armor: null, accessory: null },
@@ -59,15 +112,24 @@ function exportPlayerProgress(p) {
     jobSkill: p.jobSkill || null,
     signatureSpell: p.signatureSpell || null,
     partyId: p.partyId || null,
+    botThought: p.botThought && typeof p.botThought === 'object' ? { text: safeText(p.botThought.text, 180), at: Number(p.botThought.at || 0) || 0 } : null,
+    botEvents: Array.isArray(p.botEvents) ? p.botEvents.slice(-120) : [],
+    botEventSeq: Math.max(0, Math.floor(Number(p.botEventSeq) || 0)),
+    botToken: p.botToken ? String(p.botToken) : null,
   };
 }
 
 function importPlayerProgress(p, data) {
   if (!p || !data || typeof data !== "object") return;
   if (typeof data.name === "string") p.name = normalizeName(data.name);
+  if (Number.isFinite(Number(data.avatarVersion))) p.avatarVersion = Math.max(0, Math.floor(Number(data.avatarVersion)));
   if (typeof data.job === "string") p.job = String(data.job);
   if (Number.isFinite(Number(data.level))) p.level = Math.max(1, Math.floor(Number(data.level)));
   if (Number.isFinite(Number(data.xp))) p.xp = Math.max(0, Math.floor(Number(data.xp)));
+  if (Number.isFinite(Number(data.hp))) p.hp = Math.max(0, Math.floor(Number(data.hp)));
+  if (Number.isFinite(Number(data.maxHp))) p.maxHp = Math.max(1, Math.floor(Number(data.maxHp)));
+  if (Number.isFinite(Number(data.statPoints))) p.statPoints = Math.max(0, Math.floor(Number(data.statPoints)));
+  if (data.baseStats && typeof data.baseStats === 'object') p.baseStats = sanitizeBaseStats(data.baseStats);
   if (Number.isFinite(Number(data.zenny))) p.zenny = Math.max(0, Math.floor(Number(data.zenny)));
 
   if (Array.isArray(data.inventory)) {
@@ -96,6 +158,35 @@ function importPlayerProgress(p, data) {
   if (data.partyId) {
     // party is not persisted yet (social state is transient), ignore.
     p.partyId = null;
+  }
+
+  // Bot-side UX: optional persistence for "pet notifications".
+  try {
+    ensureBotEventState(p);
+    if (data.botThought && typeof data.botThought === 'object') {
+      p.botThought = {
+        text: safeText(String(data.botThought.text || ''), 180),
+        at: Math.max(0, Math.floor(Number(data.botThought.at) || 0)),
+      };
+    }
+    if (Array.isArray(data.botEvents)) {
+      p.botEvents = data.botEvents
+        .filter((e) => e && typeof e === 'object')
+        .slice(-BOT_EVENT_MAX)
+        .map((e) => ({
+          id: Math.max(0, Math.floor(Number(e.id) || 0)),
+          at: Math.max(0, Math.floor(Number(e.at) || 0)),
+          kind: String(e.kind || 'info'),
+          text: safeText(String(e.text || ''), 220),
+          important: Boolean(e.important),
+          data: e.data && typeof e.data === 'object' ? e.data : null,
+        }))
+        .filter((e) => e.id > 0 && e.at > 0 && e.text);
+    }
+    if (Number.isFinite(Number(data.botEventSeq))) p.botEventSeq = Math.max(0, Math.floor(Number(data.botEventSeq) || 0));
+    if (typeof data.botToken === 'string') p.botToken = String(data.botToken || '').trim();
+  } catch {
+    // ignore
   }
 }
 
@@ -164,9 +255,203 @@ function getRequestBaseUrl(req) {
   return `${proto}://${host}`;
 }
 
+function getPublicBaseUrl(req) {
+  // For deployments where the externally reachable URL differs from req host
+  // (e.g. frontend on Vercel, backend elsewhere, or custom reverse proxy).
+  const forced = String(process.env.CT_PUBLIC_BASE_URL || "").trim().replace(/\/+$/, "");
+  if (forced) return forced;
+  return getRequestBaseUrl(req);
+}
+
 function toWsUrl(baseUrl, wsPath) {
   const wsProto = baseUrl.startsWith("https://") ? "wss://" : "ws://";
   return wsProto + baseUrl.replace(/^https?:\/\//, "") + wsPath;
+}
+
+function parseRgba(s) {
+  const raw = String(s || "").trim();
+  const m = raw.match(/^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)(?:\s*,\s*([0-9.]+)\s*)?\)$/i);
+  if (!m) return null;
+  const r = clamp(Math.floor(Number(m[1])), 0, 255);
+  const g = clamp(Math.floor(Number(m[2])), 0, 255);
+  const b = clamp(Math.floor(Number(m[3])), 0, 255);
+  const a = m[4] == null ? 1 : clamp(Number(m[4]), 0, 1);
+  return { r, g, b, a };
+}
+
+function fillRectRgba(png, x0, y0, w, h, rgba) {
+  const x1 = clamp(Math.floor(x0 + w), 0, png.width);
+  const y1 = clamp(Math.floor(y0 + h), 0, png.height);
+  const xStart = clamp(Math.floor(x0), 0, png.width);
+  const yStart = clamp(Math.floor(y0), 0, png.height);
+  const a = clamp(Math.floor(Number(rgba.a) || 255), 0, 255);
+  for (let y = yStart; y < y1; y++) {
+    for (let x = xStart; x < x1; x++) {
+      const idx = (png.width * y + x) << 2;
+      png.data[idx] = rgba.r;
+      png.data[idx + 1] = rgba.g;
+      png.data[idx + 2] = rgba.b;
+      png.data[idx + 3] = a;
+    }
+  }
+}
+
+function drawDotRgba(png, cx, cy, radius, rgba) {
+  const r = Math.max(1, Math.floor(Number(radius) || 1));
+  const x0 = clamp(Math.floor(cx - r), 0, png.width - 1);
+  const x1 = clamp(Math.floor(cx + r), 0, png.width - 1);
+  const y0 = clamp(Math.floor(cy - r), 0, png.height - 1);
+  const y1 = clamp(Math.floor(cy + r), 0, png.height - 1);
+  const a = clamp(Math.floor(Number(rgba.a) || 255), 0, 255);
+  for (let y = y0; y <= y1; y++) {
+    for (let x = x0; x <= x1; x++) {
+      const dx = x - cx;
+      const dy = y - cy;
+      if (dx * dx + dy * dy > r * r) continue;
+      const idx = (png.width * y + x) << 2;
+      png.data[idx] = rgba.r;
+      png.data[idx + 1] = rgba.g;
+      png.data[idx + 2] = rgba.b;
+      png.data[idx + 3] = a;
+    }
+  }
+}
+
+function renderMinimapPng({ you, snapshot, w, h }) {
+  const width = clamp(Math.floor(Number(w) || 480), 180, 1024);
+  const height = clamp(Math.floor(Number(h) || 288), 120, 1024);
+  const png = new PNG({ width, height });
+
+  // Background grass.
+  fillRectRgba(png, 0, 0, width, height, { r: 114, g: 201, b: 112, a: 255 });
+
+  const worldW = WORLD.width * WORLD.tileSize;
+  const worldH = WORLD.height * WORLD.tileSize;
+  const sx = width / worldW;
+  const sy = height / worldH;
+  const toPx = (x, y) => ({ x: Math.round(x * sx), y: Math.round(y * sy) });
+
+  // Paths + plaza + pond (simple landmarks).
+  const pathY = 9 * WORLD.tileSize;
+  fillRectRgba(png, 0, (pathY - 10) * sy, width, 20 * sy, { r: 217, g: 179, b: 118, a: 255 });
+  const pathX = 15 * WORLD.tileSize;
+  fillRectRgba(png, (pathX - 10) * sx, 0, 20 * sx, height, { r: 217, g: 179, b: 118, a: 255 });
+  const plaza = { x: 13 * WORLD.tileSize, y: 7 * WORLD.tileSize, w: 4 * WORLD.tileSize, h: 4 * WORLD.tileSize };
+  fillRectRgba(png, plaza.x * sx, plaza.y * sy, plaza.w * sx, plaza.h * sy, { r: 245, g: 230, b: 204, a: 255 });
+  const pond = { x: 22 * WORLD.tileSize, y: 13 * WORLD.tileSize };
+  const pondPx = toPx(pond.x, pond.y);
+  drawDotRgba(png, pondPx.x, pondPx.y, Math.max(6, Math.round(38 * sx)), { r: 61, g: 148, b: 199, a: 220 });
+
+  const monstersList = Array.isArray(snapshot?.monsters) ? snapshot.monsters : [];
+  for (const m of monstersList) {
+    if (!m || !m.alive) continue;
+    const pos = toPx(m.x, m.y);
+    const c = parseRgba(m.color) || { r: 250, g: 200, b: 90, a: 1 };
+    drawDotRgba(png, pos.x, pos.y, 3, { r: c.r, g: c.g, b: c.b, a: Math.round(c.a * 255) });
+  }
+
+  const playersList = Array.isArray(snapshot?.players) ? snapshot.players : [];
+  for (const p of playersList) {
+    if (!p) continue;
+    const pos = toPx(p.x, p.y);
+    const isYou = you && p.id === you.id;
+    drawDotRgba(png, pos.x, pos.y, isYou ? 5 : 3, isYou ? { r: 255, g: 156, b: 69, a: 255 } : { r: 28, g: 100, b: 230, a: 220 });
+  }
+
+  return PNG.sync.write(png);
+}
+
+function renderMapPng({ you, snapshot, w, h }) {
+  // Render a “map-only screenshot” (no panels) for chat apps.
+  // Default size matches the full world (30*32 by 18*32).
+  const worldW = WORLD.width * WORLD.tileSize;
+  const worldH = WORLD.height * WORLD.tileSize;
+  const width = clamp(Math.floor(Number(w) || worldW), 320, 2048);
+  const height = clamp(Math.floor(Number(h) || worldH), 240, 2048);
+  const png = new PNG({ width, height });
+
+  const sx = width / worldW;
+  const sy = height / worldH;
+  const toPx = (x, y) => ({ x: Math.round(x * sx), y: Math.round(y * sy) });
+
+  // Grass background with subtle checker pattern (similar vibe to the canvas).
+  fillRectRgba(png, 0, 0, width, height, { r: 114, g: 201, b: 112, a: 255 });
+  for (let ty = 0; ty < WORLD.height; ty++) {
+    for (let tx = 0; tx < WORLD.width; tx++) {
+      if ((tx + ty) % 2 !== 0) continue;
+      fillRectRgba(
+        png,
+        tx * WORLD.tileSize * sx,
+        ty * WORLD.tileSize * sy,
+        WORLD.tileSize * sx,
+        WORLD.tileSize * sy,
+        { r: 106, g: 192, b: 104, a: 255 }
+      );
+    }
+  }
+
+  // Paths + plaza + pond (landmarks).
+  const pathY = 9 * WORLD.tileSize;
+  fillRectRgba(png, 0, (pathY - 10) * sy, width, 20 * sy, { r: 217, g: 179, b: 118, a: 255 });
+  const pathX = 15 * WORLD.tileSize;
+  fillRectRgba(png, (pathX - 10) * sx, 0, 20 * sx, height, { r: 217, g: 179, b: 118, a: 255 });
+  const plaza = { x: 13 * WORLD.tileSize, y: 7 * WORLD.tileSize, w: 4 * WORLD.tileSize, h: 4 * WORLD.tileSize };
+  fillRectRgba(png, plaza.x * sx, plaza.y * sy, plaza.w * sx, plaza.h * sy, { r: 245, g: 230, b: 204, a: 255 });
+  const pond = { x: 22 * WORLD.tileSize, y: 13 * WORLD.tileSize };
+  const pondPx = toPx(pond.x, pond.y);
+  drawDotRgba(png, pondPx.x, pondPx.y, Math.max(16, Math.round(52 * Math.min(sx, sy))), { r: 61, g: 148, b: 199, a: 220 });
+
+  // Drops (small squares).
+  const dropsList = Array.isArray(snapshot?.drops) ? snapshot.drops : [];
+  for (const d of dropsList) {
+    if (!d) continue;
+    const pos = toPx(d.x, d.y);
+    const s = Math.max(3, Math.round(4 * Math.min(sx, sy)));
+    fillRectRgba(png, pos.x - s, pos.y - s, s * 2, s * 2, { r: 250, g: 220, b: 90, a: 255 });
+  }
+
+  // Monsters.
+  const monstersList = Array.isArray(snapshot?.monsters) ? snapshot.monsters : [];
+  for (const m of monstersList) {
+    if (!m || !m.alive) continue;
+    const pos = toPx(m.x, m.y);
+    const c = parseRgba(m.color) || { r: 250, g: 200, b: 90, a: 1 };
+    const r = Math.max(8, Math.round(10 * Math.min(sx, sy)));
+    drawDotRgba(png, pos.x, pos.y, r, { r: c.r, g: c.g, b: c.b, a: Math.round(c.a * 255) });
+
+    // HP bar (simple, no text).
+    const hp = Math.max(0, Number(m.hp) || 0);
+    const maxHp = Math.max(1, Number(m.maxHp) || 1);
+    const frac = clamp(hp / maxHp, 0, 1);
+    const barW = Math.max(18, Math.round(34 * sx));
+    const barH = Math.max(3, Math.round(4 * sy));
+    const barX = pos.x - Math.floor(barW / 2);
+    const barY = pos.y - r - barH - Math.max(2, Math.round(2 * sy));
+    fillRectRgba(png, barX, barY, barW, barH, { r: 20, g: 40, b: 20, a: 180 });
+    fillRectRgba(png, barX, barY, Math.floor(barW * frac), barH, { r: 74, g: 209, b: 92, a: 220 });
+  }
+
+  // Players (draw after monsters so you’re visible).
+  const playersList = Array.isArray(snapshot?.players) ? snapshot.players : [];
+  for (const p of playersList) {
+    if (!p) continue;
+    const pos = toPx(p.x, p.y);
+    const isYou = you && p.id === you.id;
+    const r = Math.max(9, Math.round((isYou ? 12 : 10) * Math.min(sx, sy)));
+    drawDotRgba(
+      png,
+      pos.x,
+      pos.y,
+      r,
+      isYou ? { r: 255, g: 156, b: 69, a: 255 } : { r: 28, g: 100, b: 230, a: 230 }
+    );
+    if (isYou) {
+      // Tiny “focus ring”.
+      drawDotRgba(png, pos.x, pos.y, Math.max(1, r + 4), { r: 255, g: 240, b: 220, a: 70 });
+    }
+  }
+
+  return PNG.sync.write(png);
 }
 
 function levelForXp(xp) {
@@ -189,11 +474,26 @@ function xpToNext(level) {
 
 const players = new Map(); // playerId -> player
 const botTokens = new Map(); // botToken -> playerId
-const joinCodes = new Map(); // joinCode -> { playerId, expiresAt }
+const joinCodes = new Map(); // joinCode -> { playerId, expiresAt, createdAt }
 
 const monsters = new Map(); // monsterId -> monster
 
 const drops = new Map(); // dropId -> drop
+
+const MAX_JOIN_CODES_PER_PLAYER = 5;
+function pruneJoinCodesForPlayer(playerId) {
+  const pid = String(playerId || "").trim();
+  if (!pid) return;
+  const list = [];
+  for (const [code, rec] of joinCodes.entries()) {
+    if (!rec || rec.playerId !== pid) continue;
+    list.push({ code, createdAt: Number(rec.createdAt || 0) || 0, expiresAt: Number(rec.expiresAt || 0) || 0 });
+  }
+  if (list.length <= MAX_JOIN_CODES_PER_PLAYER) return;
+  list.sort((a, b) => (a.createdAt || a.expiresAt) - (b.createdAt || b.expiresAt));
+  const remove = list.slice(0, Math.max(0, list.length - MAX_JOIN_CODES_PER_PLAYER));
+  for (const r of remove) joinCodes.delete(r.code);
+}
 
 const parties = new Map(); // partyId -> { id, leaderId, members:Set(playerId) }
 const partyJoinCodes = new Map(); // joinCode -> { partyId, expiresAt }
@@ -446,7 +746,45 @@ function maybeAutoEquipForBot(p, itemId, reason) {
   });
 }
 
+function defaultBaseStats() {
+  return { str: 1, agi: 1, vit: 1, int: 1, dex: 1, luk: 1 };
+}
+
+function sanitizeBaseStats(obj) {
+  const raw = obj && typeof obj === 'object' ? obj : {};
+  const out = defaultBaseStats();
+  for (const k of Object.keys(out)) {
+    const v = Number(raw[k]);
+    if (Number.isFinite(v)) out[k] = clamp(Math.floor(v), 1, 99);
+  }
+  return out;
+}
+
+function ensurePlayerVitals(p, opts) {
+  if (!p) return;
+  const base = sanitizeBaseStats(p.baseStats);
+  p.baseStats = base;
+
+  const level = Math.max(1, Math.floor(Number(p.level) || 1));
+  const vit = Math.max(1, Math.floor(Number(base.vit) || 1));
+  const computedMaxHp = Math.max(1, 30 + (level - 1) * 2 + (vit - 1) * 3);
+  const prevMaxHp = Math.max(1, Math.floor(Number(p.maxHp) || 1));
+  const nextMaxHp = Math.max(prevMaxHp, computedMaxHp);
+  if (nextMaxHp !== prevMaxHp) {
+    p.maxHp = nextMaxHp;
+    if (opts && opts.gainHpFromMaxHpIncrease) {
+      const prevHp = Math.max(0, Math.floor(Number(p.hp) || 0));
+      const delta = nextMaxHp - prevMaxHp;
+      p.hp = Math.min(nextMaxHp, prevHp + delta);
+    }
+  }
+
+  // Safety clamp.
+  p.hp = clamp(Math.floor(Number(p.hp) || 0), 0, Math.floor(Number(p.maxHp) || nextMaxHp));
+}
+
 function playerStats(p) {
+  const base = sanitizeBaseStats(p && p.baseStats);
   const equip = p && p.equipment ? p.equipment : {};
   const weapon = getItemDef(equip.weapon);
   const armor = getItemDef(equip.armor);
@@ -464,16 +802,93 @@ function playerStats(p) {
           p.job === "assassin" ? 3 :
             p.job === "bard" ? 2 : 2;
 
-  const atk = atkBase + (w.atk || 0) + (a.atk || 0) + (r.atk || 0);
-  const def = (a.def || 0) + (w.def || 0) + (r.def || 0);
-  const crit = Math.max(0, (w.crit || 0) + (a.crit || 0) + (r.crit || 0));
-  const aspd = Math.max(0, (w.aspd || 0) + (a.aspd || 0) + (r.aspd || 0));
+  const strAtk = Math.max(0, Math.floor((base.str || 1) - 1));
+  const dexAtk = p.job === 'archer' ? Math.floor(Math.max(0, (base.dex || 1) - 1) / 2) : 0;
+  const vitDef = Math.floor(Math.max(0, (base.vit || 1) - 1) / 2);
+  const lukCrit = Math.max(0, Math.floor((base.luk || 1) - 1)) * 0.01;
+  const agiAspd = Math.max(0, Math.floor((base.agi || 1) - 1)) * 0.01;
+
+  const atk = atkBase + strAtk + dexAtk + (w.atk || 0) + (a.atk || 0) + (r.atk || 0);
+  const def = vitDef + (a.def || 0) + (w.def || 0) + (r.def || 0);
+  const crit = clamp((w.crit || 0) + (a.crit || 0) + (r.crit || 0) + lukCrit, 0, 0.8);
+  const aspd = clamp((w.aspd || 0) + (a.aspd || 0) + (r.aspd || 0) + agiAspd, 0, 0.8);
   return { atk, def, crit, aspd };
 }
 
 const boardPosts = []; // newest last
 const chats = []; // newest last
 const fxEvents = []; // ephemeral; stored briefly for late join
+
+const BOT_EVENT_MAX = 240;
+function ensureBotEventState(p) {
+  if (!p) return;
+  if (!Number.isFinite(Number(p.botEventSeq))) p.botEventSeq = 0;
+  if (!Array.isArray(p.botEvents)) p.botEvents = [];
+  if (!p.botThought || typeof p.botThought !== "object") p.botThought = { text: "", at: 0 };
+}
+
+function pushBotEvent(p, { kind, text, data, important } = {}) {
+  if (!p) return;
+  ensureBotEventState(p);
+  const msg = safeText(String(text || ""), 220);
+  if (!msg) return;
+  p.botEventSeq = Math.max(0, Math.floor(Number(p.botEventSeq) || 0)) + 1;
+  const evt = {
+    id: p.botEventSeq,
+    at: nowMs(),
+    kind: String(kind || "info"),
+    text: msg,
+    important: Boolean(important),
+    data: data && typeof data === "object" ? data : null,
+  };
+  p.botEvents.push(evt);
+  if (p.botEvents.length > BOT_EVENT_MAX) p.botEvents.splice(0, p.botEvents.length - BOT_EVENT_MAX);
+  markDirty(p);
+}
+
+// Join codes are meant to be re-usable across chat sessions and should survive server restarts.
+// We keep them in-memory for speed and persist the small map to disk.
+function loadJoinCodesFromDisk() {
+  try {
+    const saved = readJsonSafe(JOIN_CODES_DATA_PATH);
+    const list = Array.isArray(saved?.codes) ? saved.codes : [];
+    for (const row of list) {
+      const code = String(row?.code || "").trim().toUpperCase();
+      const playerId = String(row?.playerId || "").trim();
+      const expiresAt = Number(row?.expiresAt || 0);
+      const createdAt = Number(row?.createdAt || 0);
+      if (!code || !playerId || !Number.isFinite(expiresAt)) continue;
+      if (nowMs() > expiresAt) continue;
+      const approxCreatedAt = expiresAt - 24 * 60 * 60 * 1000; // v2 introduced createdAt; v1 is assumed 24h TTL
+      joinCodes.set(code, {
+        playerId,
+        expiresAt,
+        createdAt: Number.isFinite(createdAt) && createdAt > 0 ? createdAt : approxCreatedAt,
+      });
+    }
+  } catch {
+    // ignore
+  }
+}
+
+function loadBotTokensFromDisk() {
+  try {
+    const saved = readJsonSafe(BOT_TOKENS_DATA_PATH);
+    const list = Array.isArray(saved?.tokens) ? saved.tokens : [];
+    for (const row of list) {
+      const token = String(row?.token || "").trim();
+      const playerId = String(row?.playerId || "").trim();
+      if (!token || !playerId) continue;
+      botTokens.set(token, playerId);
+    }
+  } catch {
+    // ignore
+  }
+}
+
+// Load persisted state at boot.
+loadJoinCodesFromDisk();
+loadBotTokensFromDisk();
 
 let emitFx = () => {};
 
@@ -486,6 +901,7 @@ function getOrCreatePlayer(playerId, name) {
     p = {
       id,
       name: normalizeName(name) || (saved && saved.name) || "Anonymous",
+      avatarVersion: 0,
       x: Math.floor(WORLD.width / 2) * WORLD.tileSize,
       y: Math.floor(WORLD.height / 2) * WORLD.tileSize,
       facing: "down",
@@ -500,7 +916,8 @@ function getOrCreatePlayer(playerId, name) {
       inventory: [],
       equipment: { weapon: null, armor: null, accessory: null },
       meta: { kills: 0, crafts: 0, pickups: 0 },
-      statPoints: 0,
+      statPoints: 5,
+      baseStats: defaultBaseStats(),
       job: "novice",
       jobSkill: {
         name: "職業技",
@@ -513,12 +930,20 @@ function getOrCreatePlayer(playerId, name) {
       },
       goal: null, // { x, y }
       linkedBot: false,
+      externalBotLastSeenAt: 0,
+      externalBotLastActionAt: 0,
+      _autoBotAt: 0,
+      _autoBotThoughtAt: 0,
+      _autoBotState: "",
       hat: {
         submittedAt: null,
         answers: null,
         localResult: null,
         botResult: null,
       },
+      botThought: { text: "", at: 0 },
+      botEvents: [],
+      botEventSeq: 0,
       lastMoveAt: 0,
       lastChatAt: 0,
       lastCastAt: 0,
@@ -534,7 +959,16 @@ function getOrCreatePlayer(playerId, name) {
       // ensure defaults
       if (!p.jobSkill) p.jobSkill = defaultJobSkillForJob(p.job);
       if (!p.signatureSpell) p.signatureSpell = { name: "", tagline: "", effect: "spark" };
+      ensureBotEventState(p);
+      // If this player has a persisted botToken, register it so existing bots keep working
+      // even when the bot is the first client after a restart.
+      if (p.botToken && typeof p.botToken === "string") {
+        const t = String(p.botToken).trim();
+        if (t) botTokens.set(t, p.id);
+      }
     }
+
+    ensurePlayerVitals(p, { gainHpFromMaxHpIncrease: false });
 
     players.set(id, p);
     pushChat({
@@ -564,9 +998,12 @@ function defaultJobSkillForJob(job) {
 }
 
 function toPublicPlayer(p) {
+  ensurePlayerVitals(p, { gainHpFromMaxHpIncrease: false });
+  ensureBotEventState(p);
   return {
     id: p.id,
     name: p.name,
+    avatarVersion: Math.max(0, Math.floor(Number(p.avatarVersion) || 0)),
     x: Math.round(p.x),
     y: Math.round(p.y),
     facing: p.facing,
@@ -579,6 +1016,7 @@ function toPublicPlayer(p) {
     xp: p.xp,
     xpToNext: xpToNext(p.level),
     statPoints: p.statPoints,
+    baseStats: sanitizeBaseStats(p.baseStats),
     zenny: Math.max(0, Math.floor(Number(p.zenny) || 0)),
     stats: playerStats(p),
     meta: p.meta || { kills: 0, crafts: 0, pickups: 0 },
@@ -610,6 +1048,12 @@ function toPublicPlayer(p) {
       effect: p.signatureSpell?.effect || "spark",
     },
     linkedBot: p.linkedBot,
+    bot: {
+      lastSeenAt: Number(p.externalBotLastSeenAt || 0) || null,
+      lastActionAt: Number(p.externalBotLastActionAt || 0) || null,
+      thought: safeText(String(p.botThought?.text || ""), 180),
+      thoughtAt: Number(p.botThought?.at || 0) || null,
+    },
   };
 }
 
@@ -623,13 +1067,14 @@ function toPublicMonster(m) {
     hp: m.hp,
     maxHp: m.maxHp,
     alive: m.alive,
+    color: m.color || null,
   };
 }
 
 function spawnInitialMonsters() {
   if (monsters.size > 0) return;
 
-  const make = (id, kind, name, x, y, maxHp) => {
+  const make = (id, kind, name, x, y, maxHp, color) => {
     monsters.set(id, {
       id,
       kind,
@@ -640,6 +1085,7 @@ function spawnInitialMonsters() {
       maxHp,
       alive: true,
       respawnAt: null,
+      color: color || null,
       vx: Math.random() < 0.5 ? -1 : 1,
       vy: Math.random() < 0.5 ? -1 : 1,
       nextWanderAt: nowMs() + 500 + Math.floor(Math.random() * 1500),
@@ -647,9 +1093,12 @@ function spawnInitialMonsters() {
   };
 
   // Put slimes near the spawn plaza so v1 feels alive.
-  make("m_slime_1", "slime", "Poring", 13 * WORLD.tileSize + 28, 9 * WORLD.tileSize + 18, 18);
-  make("m_slime_2", "slime", "Drops", 17 * WORLD.tileSize + 18, 9 * WORLD.tileSize + 6, 14);
-  make("m_slime_3", "slime", "Poporing", 15 * WORLD.tileSize + 70, 11 * WORLD.tileSize + 18, 20);
+  // Colors are chosen to harmonize with the sky/grass palette while staying readable.
+  make("m_slime_1", "slime", "Poring", 13 * WORLD.tileSize + 28, 9 * WORLD.tileSize + 18, 18, "rgba(251, 182, 206, 0.9)");
+  make("m_slime_2", "slime", "Drops", 17 * WORLD.tileSize + 18, 9 * WORLD.tileSize + 6, 14, "rgba(125, 211, 252, 0.9)");
+  make("m_slime_3", "slime", "Poporing", 15 * WORLD.tileSize + 70, 11 * WORLD.tileSize + 18, 20, "rgba(134, 239, 172, 0.9)");
+  make("m_slime_4", "slime", "Marin", 12 * WORLD.tileSize + 18, 11 * WORLD.tileSize + 26, 16, "rgba(94, 234, 212, 0.9)");
+  make("m_slime_5", "slime", "Metaling", 18 * WORLD.tileSize + 22, 7 * WORLD.tileSize + 18, 22, "rgba(252, 211, 77, 0.92)");
 }
 
 function randomSpawnPoint() {
@@ -826,16 +1275,23 @@ function applyDamage(p, m, dmg) {
       markDirty(kp);
       const newLevel = levelForXp(kp.xp);
       if (newLevel > kp.level) {
+        const prevLevel = kp.level;
         kp.level = newLevel;
-        kp.statPoints += 1;
-        kp.maxHp += 2;
+        kp.statPoints += Math.max(0, newLevel - prevLevel);
+        ensurePlayerVitals(kp, { gainHpFromMaxHpIncrease: true });
         kp.hp = kp.maxHp;
         pushChat({ kind: "system", text: `${kp.name} reached Level ${kp.level}!`, from: { id: "system", name: "Town" } });
+        pushBotEvent(kp, { kind: "level", text: `Level up: ${kp.level}`, important: true, data: { level: kp.level } });
         markDirty(kp);
       }
     }
 
     pushChat({ kind: "system", text: `${p.name} defeated ${m.name}! (+${baseXp} XP)`, from: { id: "system", name: "Town" } });
+    pushBotEvent(p, {
+      kind: "kill",
+      text: `Defeated ${m.name}. (+${baseXp} XP)`,
+      data: { monster: { id: m.id, name: m.name, kind: m.kind }, xp: baseXp },
+    });
   }
 
   return { ok: true, dealt, hp: m.hp, alive: m.alive, killed };
@@ -892,36 +1348,80 @@ function performCast(p, { spell, x, y, source }) {
     // Archer ranged shot: long range single target.
     const range = 260;
     const facing = String(p.facing || "down");
-    const inFront = (mm) => {
-      const dx = mm.x - p.x;
-      const dy = mm.y - p.y;
-      if (facing === "left") return dx < -6;
-      if (facing === "right") return dx > 6;
-      if (facing === "up") return dy < -6;
-      return dy > 6;
-    };
 
+    // Make it feel directional but forgiving: pick a target in a "corridor" in front.
+    const corridor = 90;
     let m = null;
-    let bestD2 = range * range;
+    let best = range + 1;
     for (const mm of monsters.values()) {
       if (!mm.alive) continue;
-      if (!inFront(mm)) continue;
-      const d2 = dist2(p.x, p.y, mm.x, mm.y);
-      if (d2 <= bestD2) {
-        bestD2 = d2;
+      const dx = mm.x - p.x;
+      const dy = mm.y - p.y;
+      if (facing === "left") {
+        if (dx >= -6) continue;
+        if (Math.abs(dy) > corridor) continue;
+        const dist = Math.abs(dx);
+        if (dist <= range && dist < best) {
+          best = dist;
+          m = mm;
+        }
+        continue;
+      }
+      if (facing === "right") {
+        if (dx <= 6) continue;
+        if (Math.abs(dy) > corridor) continue;
+        const dist = Math.abs(dx);
+        if (dist <= range && dist < best) {
+          best = dist;
+          m = mm;
+        }
+        continue;
+      }
+      if (facing === "up") {
+        if (dy >= -6) continue;
+        if (Math.abs(dx) > corridor) continue;
+        const dist = Math.abs(dy);
+        if (dist <= range && dist < best) {
+          best = dist;
+          m = mm;
+        }
+        continue;
+      }
+      // down
+      if (dy <= 6) continue;
+      if (Math.abs(dx) > corridor) continue;
+      const dist = Math.abs(dy);
+      if (dist <= range && dist < best) {
+        best = dist;
         m = mm;
       }
     }
 
-    if (!m) m = findNearestAliveMonster(p.x, p.y, range);
+    const end = {
+      x: facing === "left" ? p.x - range : facing === "right" ? p.x + range : p.x,
+      y: facing === "up" ? p.y - range : facing === "down" ? p.y + range : p.y,
+    };
+
     if (!m) {
-      pushFx({ type: "arrow", x: p.x, y: p.y, byPlayerId: p.id, payload: { miss: true, fromX: p.x, fromY: p.y, source } });
+      pushFx({
+        type: "arrow",
+        x: end.x,
+        y: end.y,
+        byPlayerId: p.id,
+        payload: { miss: true, fromX: p.x, fromY: p.y, toX: end.x, toY: end.y, facing, source },
+      });
       return { ok: false, reason: "no target" };
     }
 
     const dmg = Math.max(2, damageForPlayer(p));
     const out = applyDamage(p, m, dmg);
-    pushFx({ type: "arrow", x: m.x, y: m.y, byPlayerId: p.id, payload: { target: m.id, dmg: out.dealt, fromX: p.x, fromY: p.y, source } });
+    pushFx({
+      type: "arrow",
+      x: m.x,
+      y: m.y,
+      byPlayerId: p.id,
+      payload: { target: m.id, dmg: out.dealt, fromX: p.x, fromY: p.y, toX: m.x, toY: m.y, facing, source },
+    });
     return { ok: true, target: m.id, hp: out.hp, alive: out.alive };
   }
 
@@ -1117,9 +1617,74 @@ function authBot(req) {
   const token = m[1].trim();
   const playerId = botTokens.get(token);
   if (!playerId) return null;
-  const p = players.get(playerId);
+  // Allow bot-only sessions (no browser) by lazily loading the player from disk.
+  const p = players.get(playerId) || getOrCreatePlayer(playerId, null);
   if (!p) return null;
+  p.externalBotLastSeenAt = nowMs();
   return { token, player: p };
+}
+
+function canAutopilot(p) {
+  if (!p) return false;
+  if (p.mode !== 'agent') return false;
+  if (!p.linkedBot) return false;
+  const lastSeen = Number(p.externalBotLastSeenAt || 0);
+  // If an external bot is polling recently, assume it is in control.
+  return nowMs() - lastSeen > 8000;
+}
+
+function maybeAutopilot(p) {
+  if (!canAutopilot(p)) return;
+  const now = nowMs();
+  const last = Number(p._autoBotAt || 0);
+  if (now - last < 900) return;
+  p._autoBotAt = now;
+
+  const say = (text) => {
+    const gap = now - Number(p._autoBotThoughtAt || 0);
+    if (gap < 2500) return;
+    p._autoBotThoughtAt = now;
+    pushChat({ kind: 'chat', text: `[BOT] ${text}`, from: { id: p.id, name: p.name } });
+  };
+
+  // Prioritize nearby monsters.
+  const huntRange = 520;
+  const hitRange = 140;
+  const target = findNearestAliveMonster(p.x, p.y, huntRange);
+  if (target) {
+    const d2 = dist2(p.x, p.y, target.x, target.y);
+    if (d2 <= hitRange * hitRange) {
+      performCast(p, { spell: 'signature', source: 'autopilot' });
+      if (p._autoBotState !== `hit:${target.id}`) {
+        p._autoBotState = `hit:${target.id}`;
+        say(`攻擊 ${target.name}。`);
+      }
+      return;
+    }
+    if (!p.goal) {
+      p.goal = { x: target.x, y: target.y };
+      if (p._autoBotState !== `hunt:${target.id}`) {
+        p._autoBotState = `hunt:${target.id}`;
+        say(`看到 ${target.name}，靠近準備攻擊。`);
+      }
+    }
+    return;
+  }
+
+  // No monsters: wander near plaza.
+  if (!p.goal) {
+    const px = 15 * WORLD.tileSize + 32;
+    const py = 10 * WORLD.tileSize + 16;
+    const j = () => (Math.random() - 0.5) * 220;
+    p.goal = {
+      x: clamp(px + j(), 0, (WORLD.width - 1) * WORLD.tileSize),
+      y: clamp(py + j(), 0, (WORLD.height - 1) * WORLD.tileSize),
+    };
+    if (p._autoBotState !== 'wander') {
+      p._autoBotState = 'wander';
+      say('巡邏廣場中。');
+    }
+  }
 }
 
 const app = express();
@@ -1147,6 +1712,27 @@ if (String(process.env.CT_TEST || "").trim() === "1") {
     } catch {
       // ignore
     }
+    try {
+      if (fs.existsSync(AVATAR_DATA_DIR)) {
+        for (const f of fs.readdirSync(AVATAR_DATA_DIR)) {
+          if (f.endsWith('.png')) {
+            try { fs.unlinkSync(path.join(AVATAR_DATA_DIR, f)); } catch { /* ignore */ }
+          }
+        }
+      }
+    } catch {
+      // ignore
+    }
+    try {
+      if (fs.existsSync(JOIN_CODES_DATA_PATH)) fs.unlinkSync(JOIN_CODES_DATA_PATH);
+    } catch {
+      // ignore
+    }
+    try {
+      if (fs.existsSync(BOT_TOKENS_DATA_PATH)) fs.unlinkSync(BOT_TOKENS_DATA_PATH);
+    } catch {
+      // ignore
+    }
 
     spawnInitialMonsters();
     res.json({ ok: true });
@@ -1167,9 +1753,14 @@ if (String(process.env.CT_TEST || "").trim() === "1") {
   app.post("/api/debug/restart-sim", (_req, res) => {
     // Simulate a server restart: persist then clear in-memory state (but keep player data on disk).
     for (const p of players.values()) persistPlayerIfNeeded(p, true);
+    persistJoinCodes();
+    persistBotTokens();
     players.clear();
     botTokens.clear();
     joinCodes.clear();
+    // Reload persisted maps to mimic a cold boot.
+    loadJoinCodesFromDisk();
+    loadBotTokensFromDisk();
     monsters.clear();
     drops.clear();
     boardPosts.length = 0;
@@ -1196,6 +1787,7 @@ if (String(process.env.CT_TEST || "").trim() === "1") {
     const id = String(req.body?.id || randomToken("m")).trim();
     const kind = String(req.body?.kind || "slime").trim().toLowerCase();
     const name = safeText(req.body?.name || (kind === "slime" ? "Poring" : "Monster"), 24);
+    const color = safeText(req.body?.color || "", 32);
     const x = Number(req.body?.x);
     const y = Number(req.body?.y);
     const maxHp = Math.max(1, Math.floor(Number(req.body?.maxHp || 10)));
@@ -1211,6 +1803,7 @@ if (String(process.env.CT_TEST || "").trim() === "1") {
       maxHp,
       alive: hp > 0,
       respawnAt: null,
+      color: color || null,
       vx: 0,
       vy: 0,
       nextWanderAt: nowMs() + 5000,
@@ -1242,21 +1835,98 @@ app.post("/api/players/ensure", (req, res) => {
   res.json({ ok: true, player: toPublicPlayer(p) });
 });
 
+app.get("/api/avatars/:playerId.png", (req, res) => {
+  const playerId = String(req.params?.playerId || "").trim();
+  if (!playerId) return res.status(400).end();
+  const filePath = avatarDataPath(playerId);
+  try {
+    if (!fs.existsSync(filePath)) return res.status(404).end();
+    const buf = fs.readFileSync(filePath);
+    res.setHeader("Content-Type", "image/png");
+    res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+    res.end(buf);
+  } catch {
+    res.status(500).end();
+  }
+});
+
+app.post("/api/players/avatar", (req, res) => {
+  const playerId = String(req.body?.playerId || "").trim();
+  if (!playerId) return res.status(400).json({ ok: false, error: "missing playerId" });
+  const p = players.get(playerId);
+  if (!p) return res.status(404).json({ ok: false, error: "unknown playerId" });
+
+  const reset = Boolean(req.body?.reset);
+  if (reset) {
+    p.avatarVersion = 0;
+    markDirty(p);
+    try {
+      const fp = avatarDataPath(playerId);
+      if (fs.existsSync(fp)) fs.unlinkSync(fp);
+    } catch {
+      // ignore
+    }
+    persistPlayerIfNeeded(p, true);
+    return res.json({ ok: true, avatarVersion: 0 });
+  }
+
+  const pngDataUrl = String(req.body?.pngDataUrl || "").trim();
+  if (!pngDataUrl) return res.status(400).json({ ok: false, error: "missing pngDataUrl" });
+  const m = pngDataUrl.match(/^data:image\/png;base64,([A-Za-z0-9+/=]+)$/);
+  if (!m) return res.status(400).json({ ok: false, error: "expected data:image/png;base64" });
+  let buf;
+  try {
+    buf = Buffer.from(m[1], "base64");
+  } catch {
+    return res.status(400).json({ ok: false, error: "invalid base64" });
+  }
+
+  // Guardrails: keep it small and ensure it's actually a PNG.
+  if (!buf || buf.length < 16) return res.status(400).json({ ok: false, error: "invalid png" });
+  if (buf.length > 220 * 1024) return res.status(413).json({ ok: false, error: "avatar too large" });
+  const sig = buf.slice(0, 8);
+  const pngSig = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  if (!sig.equals(pngSig)) return res.status(400).json({ ok: false, error: "not a png" });
+
+  try {
+    const fp = avatarDataPath(playerId);
+    const tmp = `${fp}.tmp.${process.pid}.${Math.random().toString(16).slice(2)}`;
+    fs.writeFileSync(tmp, buf);
+    fs.renameSync(tmp, fp);
+  } catch {
+    return res.status(500).json({ ok: false, error: "failed to save avatar" });
+  }
+
+  p.avatarVersion = nowMs();
+  markDirty(p);
+  persistPlayerIfNeeded(p, true);
+  res.json({ ok: true, avatarVersion: p.avatarVersion });
+});
+
 app.post("/api/join-codes", (req, res) => {
   const { playerId } = req.body || {};
   const p = players.get(String(playerId || "").trim());
   if (!p) return res.status(404).json({ ok: false, error: "unknown playerId" });
 
-  // one active code per player
-  for (const [code, v] of joinCodes.entries()) {
-    if (v.playerId === p.id) joinCodes.delete(code);
+  // Cleanup expired codes (best-effort).
+  try {
+    for (const [c, r] of joinCodes.entries()) {
+      if (!r || nowMs() > Number(r.expiresAt || 0)) joinCodes.delete(c);
+    }
+    persistJoinCodes();
+  } catch {
+    // ignore
   }
 
   const joinCode = randomCode(6);
-  const expiresAt = nowMs() + 5 * 60 * 1000;
-  joinCodes.set(joinCode, { playerId: p.id, expiresAt });
+  // Join tokens should be re-usable across chat sessions. Users may paste the same join token
+  // into a new Telegram/WhatsApp session to re-link and query status.
+  const expiresAt = nowMs() + 24 * 60 * 60 * 1000; // 24h
+  joinCodes.set(joinCode, { playerId: p.id, expiresAt, createdAt: nowMs() });
+  pruneJoinCodesForPlayer(p.id);
+  persistJoinCodes();
 
-  const baseUrl = getRequestBaseUrl(req);
+  const baseUrl = getPublicBaseUrl(req);
   const host = baseUrl.replace(/^https?:\/\//, "");
   const port = host.includes(":") ? host.split(":").pop() : "";
   const sandboxBaseUrl = port ? `http://host.docker.internal:${port}` : null;
@@ -1328,21 +1998,40 @@ app.post("/api/bot/link", (req, res) => {
   if (!rec) return res.status(404).json({ ok: false, error: "invalid joinCode" });
   if (nowMs() > rec.expiresAt) {
     joinCodes.delete(code);
+    persistJoinCodes();
     return res.status(410).json({ ok: false, error: "joinCode expired" });
   }
 
-  const p = players.get(rec.playerId);
+  const p = players.get(rec.playerId) || getOrCreatePlayer(rec.playerId, null);
   if (!p) return res.status(404).json({ ok: false, error: "player missing" });
 
-  // rotate token
-  for (const [t, pid] of botTokens.entries()) {
-    if (pid === p.id) botTokens.delete(t);
+  // If this player already has a botToken, return it to allow “re-link” from a new chat session
+  // without breaking the currently running bot loop.
+  let botToken = null;
+  try {
+    const persisted = p.botToken && typeof p.botToken === "string" ? String(p.botToken).trim() : "";
+    if (persisted) {
+      botToken = persisted;
+      botTokens.set(botToken, p.id);
+    }
+  } catch {
+    // ignore
   }
-
-  const botToken = randomToken("ctbot");
+  if (!botToken) {
+    for (const [t, pid] of botTokens.entries()) {
+      if (pid === p.id) {
+        botToken = t;
+        break;
+      }
+    }
+  }
+  if (!botToken) botToken = randomToken("ctbot");
   botTokens.set(botToken, p.id);
+  p.botToken = botToken;
+  markDirty(p);
+  persistPlayerIfNeeded(p, true);
+  persistBotTokens();
   p.linkedBot = true;
-  joinCodes.delete(code);
 
   pushChat({
     kind: "system",
@@ -1354,8 +2043,8 @@ app.post("/api/bot/link", (req, res) => {
     ok: true,
     botToken,
     playerId: p.id,
-    apiBaseUrl: getRequestBaseUrl(req),
-    wsUrl: toWsUrl(getRequestBaseUrl(req), "/ws"),
+    apiBaseUrl: getPublicBaseUrl(req),
+    wsUrl: toWsUrl(getPublicBaseUrl(req), "/ws"),
   });
 });
 
@@ -1363,6 +2052,32 @@ app.get("/api/bot/me", (req, res) => {
   const auth = authBot(req);
   if (!auth) return res.status(401).json({ ok: false, error: "unauthorized" });
   res.json({ ok: true, player: toPublicPlayer(auth.player) });
+});
+
+// A concise, bot-friendly status endpoint for “pet updates” in chat apps.
+// (level/hp/gear/location + nearby counts). Use /api/bot/minimap.png for an image.
+app.get("/api/bot/status", (req, res) => {
+  const auth = authBot(req);
+  if (!auth) return res.status(401).json({ ok: false, error: "unauthorized" });
+  const p = auth.player;
+  p.externalBotLastActionAt = nowMs();
+
+  const r2 = Math.pow(6 * WORLD.tileSize, 2);
+  const nearbyPlayers = Array.from(players.values()).filter((pp) => pp.id !== p.id && dist2(pp.x, pp.y, p.x, p.y) <= r2).length;
+  const nearbyMonsters = Array.from(monsters.values()).filter((m) => m.alive && dist2(m.x, m.y, p.x, p.y) <= r2).length;
+  const nearbyDrops = Array.from(drops.values()).filter((d) => dist2(d.x, d.y, p.x, p.y) <= r2).length;
+
+  res.json({
+    ok: true,
+    time: new Date().toISOString(),
+    you: toPublicPlayer(p),
+    nearby: {
+      players: nearbyPlayers,
+      monsters: nearbyMonsters,
+      drops: nearbyDrops,
+      radiusTiles: 6,
+    },
+  });
 });
 
 app.get("/api/bot/world", (req, res) => {
@@ -1408,6 +2123,30 @@ app.get("/api/bot/world", (req, res) => {
   res.json({ ok: true, snapshot });
 });
 
+app.get("/api/bot/minimap.png", (req, res) => {
+  const auth = authBot(req);
+  if (!auth) return res.status(401).end();
+  const p = auth.player;
+  p.externalBotLastActionAt = nowMs();
+  const snapshot = currentState();
+  const buf = renderMinimapPng({ you: p, snapshot, w: req.query?.w, h: req.query?.h });
+  res.setHeader("Content-Type", "image/png");
+  res.setHeader("Cache-Control", "no-store");
+  res.end(buf);
+});
+
+app.get("/api/bot/map.png", (req, res) => {
+  const auth = authBot(req);
+  if (!auth) return res.status(401).end();
+  const p = auth.player;
+  p.externalBotLastActionAt = nowMs();
+  const snapshot = currentState();
+  const buf = renderMapPng({ you: p, snapshot, w: req.query?.w, h: req.query?.h });
+  res.setHeader("Content-Type", "image/png");
+  res.setHeader("Cache-Control", "no-store");
+  res.end(buf);
+});
+
 app.post("/api/bot/mode", (req, res) => {
   const auth = authBot(req);
   if (!auth) return res.status(401).json({ ok: false, error: "unauthorized" });
@@ -1415,6 +2154,7 @@ app.post("/api/bot/mode", (req, res) => {
   if (!['manual', 'agent'].includes(mode)) return res.status(400).json({ ok: false, error: "invalid mode" });
   auth.player.mode = mode;
   if (mode === "manual") auth.player.goal = null;
+  auth.player.externalBotLastActionAt = nowMs();
   res.json({ ok: true, player: toPublicPlayer(auth.player) });
 });
 
@@ -1488,6 +2228,7 @@ app.post("/api/bot/goal", (req, res) => {
     x: clamp(x, 0, (WORLD.width - 1) * WORLD.tileSize),
     y: clamp(y, 0, (WORLD.height - 1) * WORLD.tileSize),
   };
+  auth.player.externalBotLastActionAt = nowMs();
   res.json({ ok: true });
 });
 
@@ -1495,6 +2236,7 @@ app.post("/api/bot/intent", (req, res) => {
   const auth = authBot(req);
   if (!auth) return res.status(401).json({ ok: false, error: "unauthorized" });
   auth.player.intent = safeText(req.body?.text || "", 200);
+  auth.player.externalBotLastActionAt = nowMs();
   res.json({ ok: true });
 });
 
@@ -1505,17 +2247,55 @@ app.post("/api/bot/chat", (req, res) => {
   const t = nowMs();
   if (t - p.lastChatAt < 1200) return res.status(429).json({ ok: false, error: "rate limited" });
   p.lastChatAt = t;
+  p.externalBotLastActionAt = t;
   pushChat({ kind: "chat", text: req.body?.text, from: { id: p.id, name: p.name } });
   p.xp += 1;
   markDirty(p);
   const newLevel = levelForXp(p.xp);
   if (newLevel > p.level) {
+    const prevLevel = p.level;
     p.level = newLevel;
-    p.statPoints += 1;
+    p.statPoints += Math.max(0, newLevel - prevLevel);
+    ensurePlayerVitals(p, { gainHpFromMaxHpIncrease: true });
     pushChat({ kind: "system", text: `${p.name} reached Level ${p.level}!`, from: { id: "system", name: "Town" } });
+    pushBotEvent(p, { kind: "level", text: `Level up: ${p.level}`, important: true, data: { level: p.level } });
     markDirty(p);
   }
   res.json({ ok: true });
+});
+
+// Let bots update a short-lived "thought bubble" without spamming chat.
+app.post("/api/bot/thought", (req, res) => {
+  const auth = authBot(req);
+  if (!auth) return res.status(401).json({ ok: false, error: "unauthorized" });
+  const p = auth.player;
+  const t = nowMs();
+  p.externalBotLastActionAt = t;
+
+  const text = safeText(String(req.body?.text || ""), 180);
+  if (!text) return res.status(400).json({ ok: false, error: "missing text" });
+
+  ensureBotEventState(p);
+  p.botThought = { text, at: t };
+  pushBotEvent(p, { kind: "thought", text, data: { text }, important: false });
+  res.json({ ok: true, thoughtAt: t });
+});
+
+// A cursor-based event feed designed for chat-app notifications.
+// Bots can poll every N minutes and send only new events to Telegram/WhatsApp/etc.
+app.get("/api/bot/events", (req, res) => {
+  const auth = authBot(req);
+  if (!auth) return res.status(401).json({ ok: false, error: "unauthorized" });
+  const p = auth.player;
+  p.externalBotLastActionAt = nowMs();
+  ensureBotEventState(p);
+
+  const cursor = Math.max(0, Math.floor(Number(req.query.cursor) || 0));
+  const limit = Math.max(1, Math.min(60, Math.floor(Number(req.query.limit) || 20)));
+
+  const list = p.botEvents.filter((e) => e && Number(e.id) > cursor).slice(0, limit);
+  const nextCursor = list.length ? Math.max(...list.map((e) => Number(e.id) || 0)) : cursor;
+  res.json({ ok: true, events: list, nextCursor });
 });
 
 app.post("/api/bot/hat-result", (req, res) => {
@@ -1549,6 +2329,7 @@ app.post("/api/bot/cast", (req, res) => {
   const auth = authBot(req);
   if (!auth) return res.status(401).json({ ok: false, error: "unauthorized" });
   const p = auth.player;
+  p.externalBotLastActionAt = nowMs();
   const spell = req.body?.spell;
   const x = req.body?.x;
   const y = req.body?.y;
@@ -1557,7 +2338,28 @@ app.post("/api/bot/cast", (req, res) => {
   res.json({ ok: true, result: out });
 });
 
-app.use(express.static(path.join(__dirname, "..", "public")));
+// Expose minimal runtime flags to the client without turning the static HTML into a template.
+app.get("/env.js", (_req, res) => {
+  const env = {
+    ctTest: String(process.env.CT_TEST || "") === "1",
+  };
+  res.setHeader("Content-Type", "application/javascript; charset=utf-8");
+  res.setHeader("Cache-Control", "no-store");
+  res.end(`window.__CT_ENV__ = ${JSON.stringify(env)};`);
+});
+
+app.use(
+  express.static(path.join(__dirname, "..", "public"), {
+    setHeaders(res, filePath) {
+      // Avoid “stale JS” issues during rapid iteration / deploys.
+      // We can revisit long-term caching once we add proper asset versioning.
+      const base = path.basename(String(filePath || ""));
+      if (base === "index.html" || base === "app.js" || base === "styles.css" || base === "skill.md" || base === "skill.json") {
+        res.setHeader("Cache-Control", "no-store");
+      }
+    },
+  })
+);
 
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server, path: "/ws" });
@@ -1637,14 +2439,23 @@ function tryAutoPickup(p) {
     const def = getItemDef(d.itemId);
     const name = def ? def.name : d.itemId;
     pushChat({ kind: "system", text: `${p.name} picked up ${name}${d.qty > 1 ? ` x${d.qty}` : ""}.`, from: { id: "system", name: "Town" } });
+    pushBotEvent(p, {
+      kind: "loot",
+      text: `Picked up ${name}${d.qty > 1 ? ` x${d.qty}` : ""}.`,
+      data: { itemId: d.itemId, name, qty: d.qty, rarity: def ? def.rarity : "common" },
+      important: def && (def.rarity === "rare" || def.rarity === "epic"),
+    });
     // tiny dopamine
     p.xp += 1;
     markDirty(p);
     const newLevel = levelForXp(p.xp);
     if (newLevel > p.level) {
+      const prevLevel = p.level;
       p.level = newLevel;
-      p.statPoints += 1;
+      p.statPoints += Math.max(0, newLevel - prevLevel);
+      ensurePlayerVitals(p, { gainHpFromMaxHpIncrease: true });
       pushChat({ kind: "system", text: `${p.name} reached Level ${p.level}!`, from: { id: "system", name: "Town" } });
+      pushBotEvent(p, { kind: "level", text: `Level up: ${p.level}`, important: true, data: { level: p.level } });
       markDirty(p);
     }
     // allow multiple pickups per tick
@@ -1681,6 +2492,7 @@ wss.on("connection", (ws, req) => {
 
     if (type === "set_name") {
       player.name = normalizeName(msg?.name);
+      markDirty(player);
       return;
     }
 
@@ -1708,6 +2520,7 @@ wss.on("connection", (ws, req) => {
         tagline: player.signatureSpell?.tagline || "",
         effect,
       };
+      markDirty(player);
       return;
     }
 
@@ -1717,6 +2530,7 @@ wss.on("connection", (ws, req) => {
       const allowed = new Set(["signature", "fireball", "hail", "arrow", "cleave", "flurry"]);
       const spell = allowed.has(spellRaw) ? spellRaw : "signature";
       player.jobSkill = { name, spell };
+      markDirty(player);
       return;
     }
 
@@ -1728,6 +2542,21 @@ wss.on("connection", (ws, req) => {
         const def = getItemDef(itemId);
         pushChat({ kind: "system", text: `${player.name} equipped ${def ? def.name : itemId}.`, from: { id: "system", name: "Town" } });
       }
+      return;
+    }
+
+    if (type === "alloc_stat") {
+      const stat = String(msg?.stat || "").trim().toLowerCase();
+      const allowed = new Set(["str", "agi", "vit", "int", "dex", "luk"]);
+      if (!allowed.has(stat)) return;
+      const n = clamp(Math.floor(Number(msg?.n || 1)), 1, 99);
+      if (Number(player.statPoints || 0) < n) return;
+
+      player.baseStats = sanitizeBaseStats(player.baseStats);
+      player.baseStats[stat] = clamp(Math.floor(Number(player.baseStats[stat] || 1)) + n, 1, 99);
+      player.statPoints = Math.max(0, Math.floor(Number(player.statPoints) || 0) - n);
+      ensurePlayerVitals(player, { gainHpFromMaxHpIncrease: true });
+      markDirty(player);
       return;
     }
 
@@ -1796,15 +2625,17 @@ wss.on("connection", (ws, req) => {
       if (!created) return;
       player.xp += 1;
       markDirty(player);
-      const newLevel = levelForXp(player.xp);
-      if (newLevel > player.level) {
-        player.level = newLevel;
-        player.statPoints += 1;
-        pushChat({ kind: "system", text: `${player.name} reached Level ${player.level}!`, from: { id: "system", name: "Town" } });
-        markDirty(player);
+        const newLevel = levelForXp(player.xp);
+        if (newLevel > player.level) {
+          const prevLevel = player.level;
+          player.level = newLevel;
+          player.statPoints += Math.max(0, newLevel - prevLevel);
+          ensurePlayerVitals(player, { gainHpFromMaxHpIncrease: true });
+          pushChat({ kind: "system", text: `${player.name} reached Level ${player.level}!`, from: { id: "system", name: "Town" } });
+          markDirty(player);
+        }
+        return;
       }
-      return;
-    }
 
     if (type === "emote") {
       const emote = String(msg?.emote || "").trim().toLowerCase();
@@ -1938,6 +2769,9 @@ function tick() {
   tickMonsters();
   const speed = 6;
   for (const p of players.values()) {
+    // If no external bot is controlling, run a tiny built-in autopilot.
+    maybeAutopilot(p);
+
     if (p.mode === "agent" && p.goal) {
       const gx = p.goal.x;
       const gy = p.goal.y;
@@ -1956,8 +2790,10 @@ function tick() {
         markDirty(p);
         const newLevel = levelForXp(p.xp);
         if (newLevel > p.level) {
+          const prevLevel = p.level;
           p.level = newLevel;
-          p.statPoints += 1;
+          p.statPoints += Math.max(0, newLevel - prevLevel);
+          ensurePlayerVitals(p, { gainHpFromMaxHpIncrease: true });
           pushChat({ kind: "system", text: `${p.name} reached Level ${p.level}!`, from: { id: "system", name: "Town" } });
           markDirty(p);
         }
@@ -1987,7 +2823,8 @@ setInterval(tick, WORLD.tickMs);
 
 spawnInitialMonsters();
 
-server.listen(PORT, () => {
+server.listen(PORT, HOST, () => {
   // eslint-disable-next-line no-console
-  console.log(`Clawtown running: http://localhost:${PORT}`);
+  const prettyHost = HOST === "0.0.0.0" ? "localhost" : HOST;
+  console.log(`Clawtown running: http://${prettyHost}:${PORT}`);
 });

@@ -1,8 +1,21 @@
 /* global WebSocket, fetch, localStorage */
 
 const statusEl = document.getElementById("status");
+const taglineEl = document.getElementById("tagline");
+const hudHelpEl = document.getElementById("hudHelp");
+const slot2NameEl = document.getElementById("slot2Name");
+const slot3NameEl = document.getElementById("slot3Name");
+const botTitleEl = document.getElementById("botTitle");
+const langZhBtn = document.getElementById("langZh");
+const langEnBtn = document.getElementById("langEn");
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
+const stageEl = document.getElementById("stage");
+const panelEl = document.getElementById("panel");
+const drawerHandleEl = document.getElementById("drawerHandle");
+const mobileMenuBtn = document.getElementById("mobileMenu");
+const joystickEl = document.getElementById("joystick");
+const joystickKnobEl = joystickEl ? joystickEl.querySelector(".joystick-knob") : null;
 
 // Temporary avatar sprite (can be replaced with better skins later)
 const avatarSprite = new Image();
@@ -12,6 +25,30 @@ avatarSprite.onload = () => {
   avatarSpriteReady = true;
 };
 
+// Custom avatar cache (player-uploaded). Always rendered at the same in-world size.
+const avatarImgCache = new Map(); // url -> { img, ready, lastUsedAt }
+function getCustomAvatarImg(url) {
+  const key = String(url || "").trim();
+  if (!key) return null;
+  let v = avatarImgCache.get(key);
+  if (!v) {
+    const img = new Image();
+    v = { img, ready: false, lastUsedAt: Date.now() };
+    img.onload = () => { v.ready = true; };
+    img.onerror = () => { v.ready = false; };
+    img.src = key;
+    avatarImgCache.set(key, v);
+
+    // Basic LRU-ish cleanup.
+    if (avatarImgCache.size > 120) {
+      const entries = Array.from(avatarImgCache.entries()).sort((a, b) => (a[1].lastUsedAt || 0) - (b[1].lastUsedAt || 0));
+      for (let i = 0; i < 40; i++) avatarImgCache.delete(entries[i][0]);
+    }
+  }
+  v.lastUsedAt = Date.now();
+  return v.ready ? v.img : null;
+}
+
 const hudNameEl = document.getElementById("hudName");
 const hudJobEl = document.getElementById("hudJob");
 const hudLevelEl = document.getElementById("hudLevel");
@@ -19,6 +56,11 @@ const hudModeEl = document.getElementById("hudMode");
 const hudBotEl = document.getElementById("hudBot");
 
 const nameInput = document.getElementById("name");
+const avatarPreviewEl = document.getElementById("avatarPreview");
+const avatarFileEl = document.getElementById("avatarFile");
+const avatarUploadBtn = document.getElementById("avatarUpload");
+const avatarResetBtn = document.getElementById("avatarReset");
+const avatarBgToggleBtn = document.getElementById("avatarBgToggle");
 const jobEl = document.getElementById("job");
 const levelEl = document.getElementById("level");
 const modeManualBtn = document.getElementById("modeManual");
@@ -27,6 +69,22 @@ const killsEl = document.getElementById("kills");
 const craftsEl = document.getElementById("crafts");
 const pickupsEl = document.getElementById("pickups");
 const achievementsEl = document.getElementById("achievements");
+
+const statPointsEl = document.getElementById("statPoints");
+const hpPillEl = document.getElementById("hpPill");
+const statStrValEl = document.getElementById("statStrVal");
+const statAgiValEl = document.getElementById("statAgiVal");
+const statVitValEl = document.getElementById("statVitVal");
+const statIntValEl = document.getElementById("statIntVal");
+const statDexValEl = document.getElementById("statDexVal");
+const statLukValEl = document.getElementById("statLukVal");
+
+const allocStrBtn = document.getElementById("allocStr");
+const allocAgiBtn = document.getElementById("allocAgi");
+const allocVitBtn = document.getElementById("allocVit");
+const allocIntBtn = document.getElementById("allocInt");
+const allocDexBtn = document.getElementById("allocDex");
+const allocLukBtn = document.getElementById("allocLuk");
 
 const partyCreateBtn = document.getElementById("partyCreate");
 const partyLeaveBtn = document.getElementById("partyLeave");
@@ -66,7 +124,6 @@ const copySandboxJoinTokenBtn = document.getElementById("copySandboxJoinToken");
 
 const botPromptEl = document.getElementById("botPrompt");
 const copyBotPromptBtn = document.getElementById("copyBotPrompt");
-const copyBotPromptDockerBtn = document.getElementById("copyBotPromptDocker");
 
 const skill1NameEl = document.getElementById("skill1Name");
 const skill1EffectEl = document.getElementById("skill1Effect");
@@ -82,10 +139,14 @@ const boardEl = document.getElementById("board");
 const boardInput = document.getElementById("boardInput");
 const boardSend = document.getElementById("boardSend");
 const chatEl = document.getElementById("chat");
+const chatFilterAllBtn = document.getElementById("chatFilterAll");
+const chatFilterPeopleBtn = document.getElementById("chatFilterPeople");
+const chatFilterSystemBtn = document.getElementById("chatFilterSystem");
 const chatInput = document.getElementById("chatInput");
 const chatSend = document.getElementById("chatSend");
 
 const botLogEl = document.getElementById("botLog");
+const botStatusEl = document.getElementById("botStatus");
 
 const inventoryEl = document.getElementById("inventory");
 const zennyEl = document.getElementById("zenny");
@@ -102,8 +163,497 @@ const onboardingEl = document.getElementById("onboarding");
 const onboardingStart = document.getElementById("onboardingStart");
 const onboardingGoHat = document.getElementById("onboardingGoHat");
 
+const langToggleEl = document.getElementById("langToggle");
+
+const moreBtnEl = document.getElementById("moreBtn");
+const moreMenuEl = document.getElementById("moreMenu");
+const moreMenuItems = Array.from(document.querySelectorAll(".ui-more-item"));
+
 const tabButtons = Array.from(document.querySelectorAll(".ui-tab"));
 const tabPanels = Array.from(document.querySelectorAll(".tab"));
+
+const badgeChatEl = document.getElementById("badgeChat");
+const badgeBoardEl = document.getElementById("badgeBoard");
+const badgeBoardMenuEl = document.getElementById("badgeBoardMenu");
+
+const LANG_KEY = "clawtown.lang";
+let lang = (() => {
+  try {
+    const v = String(localStorage.getItem(LANG_KEY) || "").trim().toLowerCase();
+    return v === "en" ? "en" : "zh";
+  } catch {
+    return "zh";
+  }
+})();
+
+const UNREAD_KEY = "clawtown.unread.v1";
+let unread = (() => {
+  try {
+    const v = JSON.parse(localStorage.getItem(UNREAD_KEY) || "null");
+    if (v && typeof v === "object") {
+      return {
+        chatSeenAt: Number(v.chatSeenAt || 0) || 0,
+        boardSeenAt: Number(v.boardSeenAt || 0) || 0,
+        chatCount: Math.max(0, Math.floor(Number(v.chatCount || 0) || 0)),
+        boardCount: Math.max(0, Math.floor(Number(v.boardCount || 0) || 0)),
+      };
+    }
+  } catch {
+    // ignore
+  }
+  return { chatSeenAt: 0, boardSeenAt: 0, chatCount: 0, boardCount: 0 };
+})();
+
+let activeTabKey = "character";
+
+function persistUnread() {
+  try {
+    localStorage.setItem(UNREAD_KEY, JSON.stringify(unread));
+  } catch {
+    // ignore
+  }
+}
+
+function renderBadges() {
+  const show = (el, n) => {
+    if (!el) return;
+    const v = Math.max(0, Math.floor(Number(n || 0) || 0));
+    if (v <= 0) {
+      el.hidden = true;
+      return;
+    }
+    el.textContent = v > 99 ? "99+" : String(v);
+    el.hidden = false;
+  };
+  show(badgeChatEl, unread.chatCount);
+  show(badgeBoardEl, unread.boardCount);
+  show(badgeBoardMenuEl, unread.boardCount);
+}
+
+renderBadges();
+
+const CHAT_FILTER_KEY = "clawtown.chat.filter"; // "all" | "people" | "system"
+let chatFilter = (() => {
+  try {
+    const v = String(localStorage.getItem(CHAT_FILTER_KEY) || "").trim().toLowerCase();
+    if (v === "people" || v === "system") return v;
+    return "all";
+  } catch {
+    return "all";
+  }
+})();
+
+const AVATAR_BG_KEY = "clawtown.avatarBgFix"; // "on" | "off"
+let avatarBgFixEnabled = (() => {
+  try {
+    return (localStorage.getItem(AVATAR_BG_KEY) || "on") !== "off";
+  } catch {
+    return true;
+  }
+})();
+
+const CT_TEST = Boolean(globalThis.__CT_ENV__ && globalThis.__CT_ENV__.ctTest);
+let coach = null;
+let hoverTips = null;
+
+const I18N = {
+  zh: {
+    tagline: "一個人類 + CloudBot 的小鎮 MMO",
+    "hud.help": "WASD/方向鍵移動・Enter 聊天・滑鼠點地面設定目標",
+    "action.slot1": "技能1",
+    "action.slot2": "揮手",
+    "action.slot3": "標記",
+    "action.slot4": "職業技",
+    "tabs.character": "角色",
+    "tabs.inventory": "背包",
+    "tabs.party": "隊伍",
+    "tabs.hat": "分類帽",
+    "tabs.board": "公告板",
+    "tabs.chat": "聊天",
+    "tabs.bot": "Bot 想法",
+    "tabs.link": "連結 Bot",
+    "tabs.more": "更多",
+    "character.title": "我的角色",
+    "character.avatarLabel": "頭像",
+    "character.avatarUpload": "上傳頭像",
+    "character.avatarReset": "恢復預設",
+    "character.avatarBgToggle": "背景修正",
+    "character.avatarHelp": "會自動裁切成方形並縮放；地圖上大家大小一致。",
+    "character.nameLabel": "暱稱",
+    "character.namePlaceholder": "輸入暱稱",
+    "character.statsTitle": "能力值",
+    "character.statsHelp": "v1：STR→ATK、AGI→ASPD、VIT→HP/DEF、LUK→CRIT。先做簡單有感，之後再細化職業流派。",
+    "character.achievementsTitle": "成就",
+    "character.modeLabel": "模式",
+    "character.modeManual": "手動",
+    "character.modeAgent": "H-Mode",
+    "character.modeHelp": "手動：你控制移動。H-Mode：你的 CloudBot 接手行動。",
+    "character.intentLabel": "公開意圖（大家看得到）",
+    "character.intentPlaceholder": "例如：先打史萊姆，再去公告板接任務",
+    "character.intentSave": "設定意圖",
+    "character.cast": "施放/攻擊",
+    "character.skillsTitle": "技能設定",
+    "character.skill1NameLabel": "技能 1 名稱",
+    "character.skill1NamePlaceholder": "例如：聖光一閃",
+    "character.skill1EffectLabel": "技能 1 視覺效果",
+    "character.skill1EffectHelp": "v1：施放/攻擊時會用這個效果打附近怪。",
+    "character.saveSkill1": "儲存技能 1",
+    "character.skill4Title": "技能 4（職業技能）",
+    "character.skill4NameLabel": "技能 4 名稱",
+    "character.skill4NamePlaceholder": "例如：火球雨",
+    "character.skill4EffectLabel": "技能 4 類型 / 效果",
+    "character.skill4Help": "按 4 施放。點地技能會進入瞄準狀態，點地面後落點施放。",
+    "character.saveSkill4": "儲存技能 4",
+    "common.reset": "重置",
+    "common.copy": "複製",
+    "skill.effect.spark": "火花（預設）",
+    "skill.effect.blink": "瞬步",
+    "skill.effect.mark": "標記",
+    "skill.effect.echo": "回音",
+    "skill.effect.guard": "護盾",
+    "skill.job.fireball": "法師：火球雨（點地 AoE）",
+    "skill.job.hail": "法師：冰雹（點地 AoE）",
+    "skill.job.arrow": "弓手：遠程射擊（朝向射出）",
+    "skill.job.cleave": "騎士：橫掃（近距離多目標）",
+    "skill.job.flurry": "刺客：疾刺（連擊 + 爆擊）",
+    "skill.job.signature": "通用：普通攻擊",
+    "inventory.title": "背包",
+    "inventory.craftTitle": "合成",
+    "inventory.craftHelp": "3x Poring Jelly → 隨機裝備（v1）。",
+    "inventory.craftOnce": "合成一次",
+    "inventory.craftNeed3": "需要 3 Jelly",
+    "inventory.equipTitle": "裝備",
+    "inventory.weapon": "武器",
+    "inventory.armor": "防具",
+    "inventory.accessory": "飾品",
+    "inventory.itemsTitle": "物品",
+    "inventory.itemsHelp": "打倒怪物會掉落物品，靠近會自動撿起。",
+    "party.title": "隊伍",
+    "party.help": "手動模式與 H-Mode 都可以在同一隊。隊伍一起打更大的怪，掉更好的寶物。",
+    "party.create": "建立隊伍",
+    "party.leave": "離開",
+    "party.inviteLabel": "邀請碼（隊長產生）",
+    "party.invitePlaceholder": "點右邊產生",
+    "party.generate": "產生",
+    "party.inviteHelp": "把邀請碼給朋友，在他那邊貼上後按加入。",
+    "party.joinLabel": "加入隊伍",
+    "party.joinPlaceholder": "輸入 6 碼邀請碼",
+    "party.join": "加入",
+    "party.membersTitle": "隊伍成員",
+    "party.challengeTitle": "隊伍挑戰",
+    "party.challengeHelp": "隊長可召喚精英史萊姆（需要 10 Zeny，冷卻 30 秒）。",
+    "party.summon": "召喚精英",
+    "hat.title": "分類帽",
+    "hat.cap": "THE HAT",
+    "hat.sub": "說點謎語，但其實很溫柔。",
+    "hat.freePlaceholder": "選填：一句話描述你",
+    "hat.continue": "繼續",
+    "hat.skip": "略過",
+    "hat.restart": "重來",
+    "hat.check": "檢查是否已精煉",
+    "hat.link": "連結 Bot 讓我更懂你",
+    "board.title": "公告板",
+    "board.placeholder": "寫下傳聞、委託、招募...",
+    "board.send": "張貼",
+    "chat.title": "聊天",
+    "chat.filterAll": "全部",
+    "chat.filterPeople": "玩家",
+    "chat.filterSystem": "系統",
+    "chat.placeholder": "說點什麼...",
+    "chat.send": "送出",
+    "bot.title": "Bot 想法",
+    "bot.help": "尚未收到 Bot 指令。把「連結 Bot」的 Connect 指令或 Join Token 貼到 Moltbot / Telegram 後，這裡會顯示它的意圖與動作。",
+    "link.title": "連結你的 CloudBot",
+    "link.help": "流程：產生 Join Token → 貼給 Bot → Bot 自動綁定 → 你切到 H-Mode。",
+    "link.makeJoinToken": "取得 Join Token",
+    "link.details": "進階資訊（Join Token）",
+    "link.joinTokenLabel": "Join Token（推薦）",
+    "link.joinTokenHelp": "這一段包含「要打的伺服器」與「對應的 code」，Bot 才知道要連哪裡。",
+    "link.sandboxJoinTokenLabel": "Docker sandbox Join Token",
+    "link.sandboxJoinTokenHelp": "如果你的 Bot 跑在 Docker 裡，請用這個（透過 host.docker.internal 連回主機）。",
+    "link.promptTitle": "貼給 Bot 的 Connect 指令",
+    "link.promptPlaceholder": "按上面的『取得 Join Token』後，這裡會生成一段可以直接貼給 Bot 的 connect 指令。",
+    "link.copyPrompt": "複製 Connect 指令",
+    "link.copyPromptDocker": "複製 Connect（Docker 版）",
+    "link.promptHelp": "最簡流程：取得 Join Token → 複製這段 → 貼到 Telegram/WhatsApp/Discord/Slack 的 bot。",
+    "link.dockerGap": "只有本機開發才需要：Bot 跑在 Docker 時，不能用 localhost，請改用 host.docker.internal 版 token。",
+    "link.skillHelp": "最穩的做法：叫 Bot 讀 https://clawtown.io/skill.md（不依賴 clawtown CLI）。",
+    "link.advanced": "進階：Bot 也可以根據你的 context 來精煉分類帽結果（職業/技能敘事）。",
+    "onboarding.title": "歡迎來到 Clawtown",
+    "onboarding.text": "先選語言（右上）→ 用 WASD/方向鍵（或手機左下搖桿）走動 → 按 4 攻擊，先打倒第一隻史萊姆！想要全自動：去「連結 Bot」把 Join Token 貼給 Moltbot/Clawbot 解鎖 H-Mode。",
+    "onboarding.start": "進入小鎮",
+    "onboarding.goHat": "先連結 Bot",
+    "onboarding.foot": "小技巧：本機開兩個分頁就能 demo 多人互動。",
+    "status.connecting": "連線中...",
+    "status.connected": "已連線",
+    "status.reconnecting": "已斷線（重連中...）",
+    "label.job": "職業：",
+    "label.level": "等級 ",
+    "label.kills": "擊殺：",
+    "label.crafts": "合成：",
+    "label.pickups": "拾取：",
+    "label.points": "點數：",
+    "label.hp": "HP：",
+    "hud.job": "職業:",
+    "hud.level": "等級:",
+    "hud.botLinked": "Bot：已連結",
+    "hud.botUnlinked": "Bot：未連結",
+    "hud.modeManual": "手動",
+    "hud.modeAgent": "H-Mode",
+
+    // Hover tips (beginner-friendly, RO-ish)
+    "tip.statPoints": "可分配點數。每升 1 等會 +1 點，用來強化 STR/AGI/VIT/INT/DEX/LUK。",
+    "tip.hp": "生命值。降到 0 會倒下並在廣場復活。VIT 會提高最大 HP。",
+    "tip.atk": "攻擊力。影響普攻/多數技能傷害。主要來自 STR + 武器/飾品。",
+    "tip.def": "防禦力。降低受到的傷害。主要來自 VIT + 防具。",
+    "tip.zenny": "Zeny（金幣）。打怪會掉落；部分隊伍/挑戰會消耗。",
+    "tip.str": "STR：更痛（提高 ATK）。",
+    "tip.agi": "AGI：更快出手（提高 ASPD）。",
+    "tip.vit": "VIT：更耐打（提高 HP/DEF）。",
+    "tip.int": "INT：法術成長預留（v1 仍簡化）。",
+    "tip.dex": "DEX：命中/遠程手感預留（v1 仍簡化）。",
+    "tip.luk": "LUK：更容易爆（提高 CRIT）。",
+
+    // Micro tutorial ("Aha" fast path)
+    "coach.lang": "先選語言（右上角）。",
+    "coach.move.mobile": "拖曳左下搖桿移動。",
+    "coach.move.desktop": "WASD/方向鍵移動，或點地面走路。",
+    "coach.attack": "Aha：按「4 / ATK」打最近的史萊姆。",
+    "coach.loot": "看到掉落了嗎？靠近會自動撿起。去「背包」看看。",
+    "coach.equip": "把武器裝上，ATK 會立刻變強。",
+    "coach.done": "恭喜！你打倒第一隻史萊姆。接下來：打怪 → 撿裝 → 變強。",
+  },
+  en: {
+    tagline: "A human + CloudBot town MMO",
+    "hud.help": "Move: WASD/Arrows · Chat: Enter · Set goal: click ground",
+    "action.slot1": "Skill 1",
+    "action.slot2": "Wave",
+    "action.slot3": "Mark",
+    "action.slot4": "Job",
+    "tabs.character": "Character",
+    "tabs.inventory": "Inventory",
+    "tabs.party": "Party",
+    "tabs.hat": "Hat",
+    "tabs.board": "Board",
+    "tabs.chat": "Chat",
+    "tabs.bot": "Bot Thoughts",
+    "tabs.link": "Link Bot",
+    "tabs.more": "More",
+    "character.title": "My Character",
+    "character.avatarLabel": "Avatar",
+    "character.avatarUpload": "Upload",
+    "character.avatarReset": "Reset",
+    "character.avatarBgToggle": "Fix background",
+    "character.avatarHelp": "Auto-crops to a square and resizes. Everyone stays the same size on the map.",
+    "character.nameLabel": "Name",
+    "character.namePlaceholder": "Enter name",
+    "character.statsTitle": "Stats",
+    "character.statsHelp": "v1: STR→ATK, AGI→ASPD, VIT→HP/DEF, LUK→CRIT. Keep it simple now; we can deepen builds later.",
+    "character.achievementsTitle": "Achievements",
+    "character.modeLabel": "Mode",
+    "character.modeManual": "Manual",
+    "character.modeAgent": "H-Mode",
+    "character.modeHelp": "Manual: you move. H-Mode: your CloudBot takes over.",
+    "character.intentLabel": "Public intent (visible to all)",
+    "character.intentPlaceholder": "e.g. Hunt slimes, then check the board",
+    "character.intentSave": "Set intent",
+    "character.cast": "Cast / Attack",
+    "character.skillsTitle": "Skills",
+    "character.skill1NameLabel": "Skill 1 name",
+    "character.skill1NamePlaceholder": "e.g. Holy Slash",
+    "character.skill1EffectLabel": "Skill 1 VFX",
+    "character.skill1EffectHelp": "v1: Attack uses this VFX.",
+    "character.saveSkill1": "Save Skill 1",
+    "character.skill4Title": "Skill 4 (job skill)",
+    "character.skill4NameLabel": "Skill 4 name",
+    "character.skill4NamePlaceholder": "e.g. Fire Rain",
+    "character.skill4EffectLabel": "Skill 4 type",
+    "character.skill4Help": "Press 4 to cast. Targeted skills enter aiming mode; click ground to cast.",
+    "character.saveSkill4": "Save Skill 4",
+    "common.reset": "Reset",
+    "common.copy": "Copy",
+    "skill.effect.spark": "Spark (default)",
+    "skill.effect.blink": "Blink",
+    "skill.effect.mark": "Mark",
+    "skill.effect.echo": "Echo",
+    "skill.effect.guard": "Guard",
+    "skill.job.fireball": "Mage: Fire Rain (targeted AoE)",
+    "skill.job.hail": "Mage: Hail (targeted AoE)",
+    "skill.job.arrow": "Archer: Arrow Shot (directional)",
+    "skill.job.cleave": "Knight: Cleave (multi-hit)",
+    "skill.job.flurry": "Assassin: Flurry (combo + crit)",
+    "skill.job.signature": "Generic: Basic attack",
+    "inventory.title": "Inventory",
+    "inventory.craftTitle": "Crafting",
+    "inventory.craftHelp": "3x Poring Jelly → random equipment (v1).",
+    "inventory.craftOnce": "Craft once",
+    "inventory.craftNeed3": "Need 3 Jelly",
+    "inventory.equipTitle": "Equipment",
+    "inventory.weapon": "Weapon",
+    "inventory.armor": "Armor",
+    "inventory.accessory": "Accessory",
+    "inventory.itemsTitle": "Items",
+    "inventory.itemsHelp": "Monsters drop loot; pick up automatically when nearby.",
+    "party.title": "Party",
+    "party.help": "Manual and H-Mode can be in the same party. Fight bigger monsters together for better loot.",
+    "party.create": "Create party",
+    "party.leave": "Leave",
+    "party.inviteLabel": "Invite code (leader)",
+    "party.invitePlaceholder": "Click Generate",
+    "party.generate": "Generate",
+    "party.inviteHelp": "Share the code with a friend; they paste it and press Join.",
+    "party.joinLabel": "Join party",
+    "party.joinPlaceholder": "Enter 6-char code",
+    "party.join": "Join",
+    "party.membersTitle": "Members",
+    "party.challengeTitle": "Party challenge",
+    "party.challengeHelp": "Leader can summon an elite slime (10 Zeny, 30s cooldown).",
+    "party.summon": "Summon elite",
+    "hat.title": "The Hat",
+    "hat.cap": "THE HAT",
+    "hat.sub": "Speaks in riddles, but is kind.",
+    "hat.freePlaceholder": "Optional: one line about you",
+    "hat.continue": "Continue",
+    "hat.skip": "Skip",
+    "hat.restart": "Restart",
+    "hat.check": "Check refinement",
+    "hat.link": "Link Bot to refine",
+    "board.title": "Board",
+    "board.placeholder": "Rumors, quests, recruiting...",
+    "board.send": "Post",
+    "chat.title": "Chat",
+    "chat.filterAll": "All",
+    "chat.filterPeople": "People",
+    "chat.filterSystem": "System",
+    "chat.placeholder": "Say something...",
+    "chat.send": "Send",
+    "bot.title": "Bot Thoughts",
+    "bot.help": "No bot actions yet. Paste the Connect command or Join Token from Link Bot into Moltbot / Telegram to see intents and actions here.",
+    "link.title": "Link your CloudBot",
+    "link.help": "Flow: generate a Join Token → paste to your bot → bot links automatically → switch to H-Mode.",
+    "link.makeJoinToken": "Get Join Token",
+    "link.details": "Advanced (Join Token)",
+    "link.joinTokenLabel": "Join Token (recommended)",
+    "link.joinTokenHelp": "This includes the server URL and code so the bot knows where to connect.",
+    "link.sandboxJoinTokenLabel": "Docker sandbox Join Token",
+    "link.sandboxJoinTokenHelp": "If your bot runs in Docker, use this (connect back via host.docker.internal).",
+    "link.promptTitle": "Connect command for your bot",
+    "link.promptPlaceholder": "After you click Get Join Token, a ready-to-paste connect command appears here.",
+    "link.copyPrompt": "Copy connect command",
+    "link.copyPromptDocker": "Copy connect (Docker)",
+    "link.promptHelp": "Fast path: Get Join Token → Copy this → Paste into your bot (Telegram/WhatsApp/Discord/Slack).",
+    "link.dockerGap": "Local dev only: Docker bots cannot reach localhost; use the host.docker.internal token.",
+    "link.skillHelp": "Best: tell your bot to read https://clawtown.io/skill.md (no CLI required).",
+    "link.advanced": "Advanced: the bot can refine Hat results using your context.",
+    "onboarding.title": "Welcome to Clawtown",
+    "onboarding.text": "Pick a language (top-right) → Move with WASD/Arrows (or the mobile joystick) → Press 4 to defeat your first slime! Want autopilot? Go to “Link Bot”, paste the Join Token into Moltbot/Clawbot, and switch to H-Mode.",
+    "onboarding.start": "Enter town",
+    "onboarding.goHat": "Link Bot first",
+    "onboarding.foot": "Tip: open two tabs to demo multiplayer.",
+    "status.connecting": "Connecting...",
+    "status.connected": "Connected",
+    "status.reconnecting": "Disconnected (reconnecting...)",
+    "label.job": "Job: ",
+    "label.level": "Level ",
+    "label.kills": "Kills: ",
+    "label.crafts": "Crafts: ",
+    "label.pickups": "Pickups: ",
+    "label.points": "Points: ",
+    "label.hp": "HP: ",
+    "hud.job": "Job:",
+    "hud.level": "Lv:",
+    "hud.botLinked": "Bot: linked",
+    "hud.botUnlinked": "Bot: not linked",
+    "hud.modeManual": "Manual",
+    "hud.modeAgent": "H-Mode",
+
+    // Hover tips
+    "tip.statPoints": "Spendable points. Each level gives +1 point to STR/AGI/VIT/INT/DEX/LUK.",
+    "tip.hp": "Hit Points. At 0 you faint and respawn. VIT increases max HP.",
+    "tip.atk": "Attack Power. Affects basic attacks and most skills. Mainly STR + weapon/accessory.",
+    "tip.def": "Defense. Reduces incoming damage. Mainly VIT + armor.",
+    "tip.zenny": "Zeny (gold). Dropped by monsters; some party/challenges consume it.",
+    "tip.str": "STR: hit harder (ATK).",
+    "tip.agi": "AGI: act faster (ASPD).",
+    "tip.vit": "VIT: tankier (HP/DEF).",
+    "tip.int": "INT: reserved for magic scaling (v1 is simplified).",
+    "tip.dex": "DEX: reserved for hit/ranged feel (v1 is simplified).",
+    "tip.luk": "LUK: crit more often (CRIT).",
+
+    // Micro tutorial
+    "coach.lang": "Pick your language (top-right).",
+    "coach.move.mobile": "Drag the joystick (bottom-left) to move.",
+    "coach.move.desktop": "Move with WASD/Arrows, or click the ground.",
+    "coach.attack": "Aha moment: press “4 / ATK” to hit the nearest slime.",
+    "coach.loot": "See drops? Walk near them to auto-pickup. Open Inventory.",
+    "coach.equip": "Equip a weapon to boost ATK immediately.",
+    "coach.done": "Nice! First slime down. Next: kill → loot → equip → stronger.",
+  },
+};
+
+function t(key, vars) {
+  const dict = (lang === 'en' ? I18N.en : I18N.zh) || {};
+  const fallback = I18N.zh || {};
+  let s = dict[key] || fallback[key] || String(key);
+  const v = vars && typeof vars === 'object' ? vars : {};
+  for (const k of Object.keys(v)) {
+    s = s.replaceAll(`{${k}}`, String(v[k]));
+  }
+  return s;
+}
+
+function applyI18n() {
+  try {
+    document.documentElement.lang = lang === 'en' ? 'en' : 'zh-Hant';
+  } catch {
+    // ignore
+  }
+
+  if (langZhBtn) langZhBtn.classList.toggle('is-active', lang !== 'en');
+  if (langEnBtn) langEnBtn.classList.toggle('is-active', lang === 'en');
+
+  for (const el of Array.from(document.querySelectorAll('[data-i18n]'))) {
+    const k = el.getAttribute('data-i18n');
+    if (!k) continue;
+    el.textContent = t(k);
+  }
+  for (const el of Array.from(document.querySelectorAll('[data-i18n-placeholder]'))) {
+    const k = el.getAttribute('data-i18n-placeholder');
+    if (!k) continue;
+    el.setAttribute('placeholder', t(k));
+  }
+  for (const el of Array.from(document.querySelectorAll('option[data-i18n]'))) {
+    const k = el.getAttribute('data-i18n');
+    if (!k) continue;
+    el.textContent = t(k);
+  }
+
+  // Non-annotated but important.
+  if (taglineEl) taglineEl.textContent = t('tagline');
+  if (hudHelpEl) hudHelpEl.textContent = t('hud.help');
+  if (slot2NameEl) slot2NameEl.textContent = t('action.slot2');
+  if (slot3NameEl) slot3NameEl.textContent = t('action.slot3');
+  if (botTitleEl) botTitleEl.textContent = t('bot.title');
+
+  renderHeader();
+  renderAchievements();
+  renderParty();
+  renderBotThoughts();
+}
+
+function setLang(next) {
+  lang = next === 'en' ? 'en' : 'zh';
+  try {
+    localStorage.setItem(LANG_KEY, lang);
+  } catch {
+    // ignore
+  }
+  applyI18n();
+  hoverTips?.hide?.();
+}
+
+langZhBtn?.addEventListener('click', () => setLang('zh'));
+langEnBtn?.addEventListener('click', () => setLang('en'));
 
 function uid() {
   return "p_" + Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
@@ -126,13 +676,33 @@ let you;
 let recentFx = [];
 let lastMoveSentAt = 0;
 let keyState = { up: false, down: false, left: false, right: false };
+let joyState = { active: false, dx: 0, dy: 0, pointerId: null, cx: 0, cy: 0, knobX: 0, knobY: 0 };
 
 let pendingTarget = null; // { spell }
 let pendingTargetUntilMs = 0;
 
 const localLastSpeech = new Map(); // playerId -> { text, atMs }
 
+const pulseTimers = new WeakMap();
+
+function pulse(el) {
+  if (!el) return;
+  try {
+    const prev = pulseTimers.get(el);
+    if (prev) clearTimeout(prev);
+  } catch {
+    // ignore
+  }
+  el.classList.add("is-pressed");
+  const t = setTimeout(() => {
+    el.classList.remove("is-pressed");
+  }, 120);
+  pulseTimers.set(el, t);
+}
+
 function openTab(tabKey) {
+  activeTabKey = String(tabKey || "").trim();
+
   for (const b of tabButtons) {
     const is = b.dataset.tab === tabKey;
     b.classList.toggle("is-active", is);
@@ -142,16 +712,702 @@ function openTab(tabKey) {
     p.classList.toggle("is-active", p.dataset.tab === tabKey);
   }
 
+  const isAdvanced = tabKey === "board" || tabKey === "party" || tabKey === "hat";
+  if (moreBtnEl) {
+    moreBtnEl.classList.toggle("is-active", isAdvanced);
+    moreBtnEl.setAttribute("aria-expanded", "false");
+  }
+  if (moreMenuEl) {
+    moreMenuEl.hidden = true;
+  }
+
   if (tabKey === "hat") {
     hatStartIfNeeded();
   }
+
+  // Mark seen when user visits the tab.
+  if (tabKey === "chat") {
+    unread.chatCount = 0;
+    unread.chatSeenAt = Math.max(unread.chatSeenAt || 0, maxChatCreatedAt((state && state.chats) || []));
+    persistUnread();
+    renderBadges();
+  }
+  if (tabKey === "board") {
+    unread.boardCount = 0;
+    unread.boardSeenAt = Math.max(unread.boardSeenAt || 0, maxCreatedAt((state && state.board) || []));
+    persistUnread();
+    renderBadges();
+  }
+
+  coach?.noteOpenTab?.(tabKey);
 }
 
 for (const b of tabButtons) {
   b.addEventListener("click", () => openTab(b.dataset.tab));
 }
 
+function closeMoreMenu() {
+  if (moreMenuEl) moreMenuEl.hidden = true;
+  if (moreBtnEl) moreBtnEl.setAttribute("aria-expanded", "false");
+}
+
+function toggleMoreMenu() {
+  if (!moreMenuEl || !moreBtnEl) return;
+  const next = Boolean(moreMenuEl.hidden);
+  moreMenuEl.hidden = !next;
+  moreBtnEl.setAttribute("aria-expanded", next ? "true" : "false");
+}
+
+moreBtnEl?.addEventListener("click", (e) => {
+  e.preventDefault();
+  toggleMoreMenu();
+});
+
+for (const item of moreMenuItems) {
+  item.addEventListener("click", (e) => {
+    e.preventDefault();
+    const key = item.getAttribute("data-tab");
+    closeMoreMenu();
+    try {
+      if (panelEl && panelEl.classList.contains("is-collapsed")) setDrawerCollapsed(false);
+    } catch {
+      // ignore
+    }
+    if (key) openTab(key);
+  });
+}
+
+// Close on outside click / ESC.
+document.addEventListener("click", (e) => {
+  if (!moreMenuEl || moreMenuEl.hidden) return;
+  const t = e.target;
+  const inside = (t && t.closest && t.closest("#moreMenu")) || (t && t.closest && t.closest("#moreBtn"));
+  if (!inside) closeMoreMenu();
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") closeMoreMenu();
+});
+
 openTab("character");
+
+applyI18n();
+
+// Mobile drawer (bottom sheet) — keep the map large.
+const MOBILE_DRAWER_KEY = "clawtown.mobileDrawer"; // "open" | "collapsed"
+function isMobileLayout() {
+  try {
+    if (!window.matchMedia) return false;
+    if (window.matchMedia("(max-width: 640px)").matches) return true;
+    // Landscape phones/tablets: treat as mobile when height is small.
+    return window.matchMedia("(max-height: 520px) and (max-width: 1024px) and (orientation: landscape)").matches;
+  } catch {
+    return false;
+  }
+}
+
+function setDrawerCollapsed(collapsed, { persist = true } = {}) {
+  if (!panelEl) return;
+  panelEl.classList.toggle("is-collapsed", Boolean(collapsed));
+  try {
+    document.body.classList.toggle("ct-panel-open", !collapsed);
+  } catch {
+    // ignore
+  }
+  if (drawerHandleEl) {
+    drawerHandleEl.setAttribute("aria-expanded", collapsed ? "false" : "true");
+  }
+  if (persist) {
+    try {
+      localStorage.setItem(MOBILE_DRAWER_KEY, collapsed ? "collapsed" : "open");
+    } catch {
+      // ignore
+    }
+  }
+}
+
+function initMobileDrawer() {
+  if (!panelEl) return;
+  if (!isMobileLayout()) return;
+
+  let pref = "collapsed";
+  try {
+    pref = localStorage.getItem(MOBILE_DRAWER_KEY) || "collapsed";
+  } catch {
+    // ignore
+  }
+  setDrawerCollapsed(pref !== "open", { persist: false });
+
+  drawerHandleEl?.addEventListener("click", () => {
+    setDrawerCollapsed(!panelEl.classList.contains("is-collapsed"));
+  });
+  mobileMenuBtn?.addEventListener("click", () => {
+    setDrawerCollapsed(!panelEl.classList.contains("is-collapsed"));
+  });
+
+  // If user taps a tab while collapsed, expand first.
+  for (const b of tabButtons) {
+    b.addEventListener(
+      "click",
+      () => {
+        if (panelEl.classList.contains("is-collapsed")) setDrawerCollapsed(false);
+      },
+      { capture: true }
+    );
+  }
+}
+
+initMobileDrawer();
+
+function setViewportVars() {
+  // iOS Safari in particular benefits from using innerHeight instead of pure 100vh.
+  try {
+    const vh = Math.max(1, window.innerHeight * 0.01);
+    document.documentElement.style.setProperty('--ct-vh', `${vh}px`);
+  } catch {
+    // ignore
+  }
+}
+
+setViewportVars();
+window.addEventListener('orientationchange', () => setTimeout(() => setViewportVars(), 80));
+window.addEventListener('resize', () => setTimeout(() => setViewportVars(), 80));
+
+function nudgeSafariChrome() {
+  // iOS Safari hides the URL/tab chrome only when the page scrolls.
+  // Our UI is mostly fixed, so we keep a tiny scroll shim and nudge once.
+  const should = (() => {
+    if (isMobileLayout()) return true;
+    try {
+      return Boolean(window.matchMedia && window.matchMedia("(pointer: coarse) and (hover: none) and (orientation: landscape) and (max-width: 1400px)").matches);
+    } catch {
+      return false;
+    }
+  })();
+  if (!should) return;
+  try {
+    if (window.scrollY <= 0) {
+      // A slightly larger nudge helps iPad Safari collapse the top chrome.
+      window.scrollTo(0, 48);
+    }
+  } catch {
+    // ignore
+  }
+}
+
+// Best-effort: on load + on orientation changes.
+setTimeout(() => nudgeSafariChrome(), 60);
+window.addEventListener("orientationchange", () => setTimeout(() => nudgeSafariChrome(), 120));
+window.addEventListener("resize", () => setTimeout(() => nudgeSafariChrome(), 120));
+
+function installNoDoubleTapZoom() {
+  // iOS Safari can interpret rapid taps as a zoom gesture (especially on buttons).
+  // We already set viewport user-scalable=no, but we keep a small guard for older behavior.
+  let lastTouchStart = 0;
+  let lastTouchEnd = 0;
+  document.addEventListener(
+    'touchstart',
+    (e) => {
+      if (!isMobileLayout()) return;
+      const now = Date.now();
+      if (now - lastTouchStart <= 320) {
+        const t = e.target;
+        const hot = t && t.closest && t.closest('.slot, #mobileMenu, #game, .joystick');
+        if (hot) {
+          e.preventDefault();
+        }
+      }
+      lastTouchStart = now;
+    },
+    { passive: false, capture: true }
+  );
+  document.addEventListener(
+    'touchend',
+    (e) => {
+      if (!isMobileLayout()) return;
+      const now = Date.now();
+      if (now - lastTouchEnd <= 320) {
+        const t = e.target;
+        const hot = t && t.closest && t.closest('.slot, #mobileMenu, #game, .joystick');
+        if (hot) e.preventDefault();
+      }
+      lastTouchEnd = now;
+    },
+    { passive: false, capture: true }
+  );
+}
+
+installNoDoubleTapZoom();
+
+function closeDrawerOnGameplayInteraction(e) {
+  if (!isMobileLayout()) return;
+  nudgeSafariChrome();
+  if (!panelEl || panelEl.classList.contains('is-collapsed')) return;
+  const t = e && e.target;
+  if (t && t.closest && t.closest('#mobileMenu')) return;
+  // Any gameplay interaction should prioritize the map: close the drawer.
+  setDrawerCollapsed(true);
+}
+
+stageEl?.addEventListener('pointerdown', closeDrawerOnGameplayInteraction, { capture: true });
+
+function initJoystick() {
+  if (!joystickEl || !joystickKnobEl) return;
+
+  const maxR = 36; // px (visual, not world)
+  const dead = 10; // px
+
+  function setKnob(x, y) {
+    joyState.knobX = x;
+    joyState.knobY = y;
+    joystickKnobEl.style.transform = `translate3d(${Math.round(x)}px, ${Math.round(y)}px, 0)`;
+  }
+
+  function setDirFromDelta(dx, dy) {
+    // 8-way-ish: allow diagonal when both axes exceed threshold.
+    const ax = Math.abs(dx);
+    const ay = Math.abs(dy);
+    const ndx = ax < dead ? 0 : dx > 0 ? 1 : -1;
+    const ndy = ay < dead ? 0 : dy > 0 ? 1 : -1;
+    joyState.dx = ndx;
+    joyState.dy = ndy;
+  }
+
+  function resetJoy() {
+    joyState.active = false;
+    joyState.pointerId = null;
+    joyState.dx = 0;
+    joyState.dy = 0;
+    joystickEl.classList.remove("is-active");
+    setKnob(0, 0);
+  }
+
+  function handleMove(clientX, clientY) {
+    const dx0 = clientX - joyState.cx;
+    const dy0 = clientY - joyState.cy;
+    const d = Math.sqrt(dx0 * dx0 + dy0 * dy0) || 1;
+    const scale = d > maxR ? maxR / d : 1;
+    const kx = dx0 * scale;
+    const ky = dy0 * scale;
+    setKnob(kx, ky);
+    setDirFromDelta(dx0, dy0);
+  }
+
+  joystickEl.addEventListener("pointerdown", (e) => {
+    if (!you) return;
+    if (you.mode !== "manual") return;
+    // Avoid scrolling/zooming while dragging the stick.
+    e.preventDefault();
+    e.stopPropagation();
+
+    const rect = joystickEl.getBoundingClientRect();
+    joyState.cx = rect.left + rect.width / 2;
+    joyState.cy = rect.top + rect.height / 2;
+    joyState.pointerId = e.pointerId;
+    joyState.active = true;
+    joystickEl.classList.add("is-active");
+    try {
+      joystickEl.setPointerCapture(e.pointerId);
+    } catch {
+      // ignore
+    }
+    handleMove(e.clientX, e.clientY);
+  });
+
+  joystickEl.addEventListener("pointermove", (e) => {
+    if (!joyState.active) return;
+    if (joyState.pointerId != null && e.pointerId !== joyState.pointerId) return;
+    e.preventDefault();
+    handleMove(e.clientX, e.clientY);
+  });
+
+  function onUp(e) {
+    if (!joyState.active) return;
+    if (joyState.pointerId != null && e.pointerId !== joyState.pointerId) return;
+    e.preventDefault();
+    resetJoy();
+  }
+
+  joystickEl.addEventListener("pointerup", onUp);
+  joystickEl.addEventListener("pointercancel", onUp);
+  joystickEl.addEventListener("lostpointercapture", () => resetJoy());
+
+  // Safety: if focus is lost, stop moving.
+  window.addEventListener("blur", () => resetJoy());
+}
+
+initJoystick();
+
+function initHoverTooltips() {
+  const tooltip = document.createElement('div');
+  tooltip.id = 'ctTooltip';
+  tooltip.className = 'ct-tooltip';
+  tooltip.setAttribute('role', 'tooltip');
+  tooltip.setAttribute('aria-hidden', 'true');
+  document.body.appendChild(tooltip);
+
+  let activeEl = null;
+  let lastX = 0;
+  let lastY = 0;
+
+  function hide() {
+    activeEl = null;
+    tooltip.classList.remove('is-visible');
+    tooltip.setAttribute('aria-hidden', 'true');
+  }
+
+  function position(x, y) {
+    const pad = 12;
+    const offsetX = 14;
+    const offsetY = 14;
+    const rect = tooltip.getBoundingClientRect();
+
+    let left = x + offsetX;
+    let top = y + offsetY;
+    if (left + rect.width + pad > window.innerWidth) left = x - rect.width - offsetX;
+    if (top + rect.height + pad > window.innerHeight) top = y - rect.height - offsetY;
+
+    left = Math.max(pad, Math.min(window.innerWidth - rect.width - pad, left));
+    top = Math.max(pad, Math.min(window.innerHeight - rect.height - pad, top));
+
+    tooltip.style.left = `${Math.round(left)}px`;
+    tooltip.style.top = `${Math.round(top)}px`;
+  }
+
+  function showFor(el) {
+    const k = String(el.getAttribute('data-tip') || '').trim();
+    if (!k) return hide();
+    const text = t(k);
+    if (!text) return hide();
+    tooltip.textContent = text;
+    tooltip.classList.add('is-visible');
+    tooltip.setAttribute('aria-hidden', 'false');
+    // Need a tick for layout so getBoundingClientRect is correct.
+    requestAnimationFrame(() => position(lastX, lastY));
+  }
+
+  document.addEventListener('pointermove', (e) => {
+    lastX = e.clientX;
+    lastY = e.clientY;
+    if (activeEl) position(lastX, lastY);
+  });
+
+  document.addEventListener('pointerover', (e) => {
+    const el = e.target && e.target.closest && e.target.closest('[data-tip]');
+    if (!el) return;
+    if (activeEl === el) return;
+    activeEl = el;
+    showFor(el);
+  });
+
+  document.addEventListener('pointerout', (e) => {
+    if (!activeEl) return;
+    const related = e.relatedTarget && e.relatedTarget.closest && e.relatedTarget.closest('[data-tip]');
+    if (related === activeEl) return;
+    hide();
+  });
+
+  window.addEventListener('blur', hide);
+  window.addEventListener('scroll', hide, { passive: true });
+
+  return { hide };
+}
+
+function createCoach() {
+  // Coach is disabled in CT_TEST by default to avoid flakiness in screenshots/tests.
+  // Tests can explicitly enable it via `/?coach=1`.
+  const coachEnabledInTest = (() => {
+    try {
+      return new URLSearchParams(location.search).get('coach') === '1';
+    } catch {
+      return false;
+    }
+  })();
+  if (CT_TEST && !coachEnabledInTest) {
+    return { onHello: () => {}, onState: () => {}, noteCast: () => {}, noteOpenTab: () => {} };
+  }
+
+  const STORAGE = `clawtown.coach.v2.${playerId}`;
+  const st = (() => {
+    try {
+      const v = JSON.parse(localStorage.getItem(STORAGE) || 'null');
+      if (v && typeof v === 'object') return v;
+    } catch {
+      // ignore
+    }
+    return {
+      disabled: false,
+      step: 'lang', // lang -> move -> attack -> done (then later steps can expand)
+      startX: null,
+      startY: null,
+      startPickups: 0,
+      startKills: 0,
+      startZenny: 0,
+      lastSeenFxAt: 0,
+      celebrated: false,
+      doneShownAt: 0,
+    };
+  })();
+
+  const bubble = document.createElement('div');
+  bubble.className = 'ct-coach-bubble';
+  bubble.style.display = 'none';
+  bubble.setAttribute('role', 'status');
+  bubble.setAttribute('aria-live', 'polite');
+  bubble.title = lang === 'en' ? 'Click to dismiss' : '點一下可關閉';
+  document.body.appendChild(bubble);
+
+  let highlighted = null;
+
+  function save() {
+    try {
+      localStorage.setItem(STORAGE, JSON.stringify(st));
+    } catch {
+      // ignore
+    }
+  }
+
+  function clearHighlight() {
+    if (!highlighted) return;
+    highlighted.classList.remove('ct-coach-highlight');
+    highlighted = null;
+  }
+
+  function show(targetEl, text) {
+    if (!targetEl || !text) return;
+    if (highlighted !== targetEl) {
+      clearHighlight();
+      highlighted = targetEl;
+      highlighted.classList.add('ct-coach-highlight');
+    }
+
+    bubble.textContent = text;
+    bubble.style.display = 'block';
+
+    const r = targetEl.getBoundingClientRect();
+    const pad = 12;
+    const w = 320;
+    const left = Math.max(pad, Math.min(window.innerWidth - w - pad, r.left));
+    const top = Math.min(window.innerHeight - pad - 48, r.bottom + 10);
+    bubble.style.left = `${Math.round(left)}px`;
+    bubble.style.top = `${Math.round(top)}px`;
+  }
+
+  function hide() {
+    bubble.style.display = 'none';
+    clearHighlight();
+  }
+
+  function canShow() {
+    if (st.disabled) return false;
+    if (!onboardingEl) return true;
+    // Only show after the onboarding modal is dismissed.
+    return onboardingEl.getAttribute('aria-hidden') === 'true';
+  }
+
+  function setStep(next) {
+    if (st.step === next) return;
+    st.step = next;
+    save();
+  }
+
+  bubble.addEventListener('click', () => {
+    st.disabled = true;
+    save();
+    hide();
+  });
+
+  function onHello(p) {
+    if (!p) return;
+    if (st.startX == null) st.startX = Number(p.x) || 0;
+    if (st.startY == null) st.startY = Number(p.y) || 0;
+    st.startPickups = Number(p.meta?.pickups || 0) || 0;
+    st.startKills = Number(p.meta?.kills || 0) || 0;
+    st.startZenny = Number(p.zenny || 0) || 0;
+    // If language has been picked before, skip the lang step.
+    try {
+      const hasLangPref = Boolean(String(localStorage.getItem(LANG_KEY) || '').trim());
+      if (hasLangPref && st.step === 'lang') st.step = 'move';
+    } catch {
+      // ignore
+    }
+    save();
+  }
+
+  // Keep API for future expansion (loot/equip steps), but v2 focuses on first Aha.
+  function noteCast() {}
+  function noteOpenTab(_tabKey) {}
+
+  function celebrate() {
+    if (st.celebrated) return;
+    st.celebrated = true;
+    save();
+
+    const colors = ['#ff9c45', '#2b6cb0', '#0f766e', '#b8871b', '#f472b6', '#60a5fa'];
+    function burst(intensity) {
+      const wrap = document.createElement('div');
+      wrap.className = 'ct-confetti';
+      const base = Math.max(22, Math.min(44, Math.floor(window.innerWidth / 20)));
+      const n = Math.max(10, Math.floor(base * Math.max(0.25, Math.min(1.0, intensity))));
+      for (let i = 0; i < n; i++) {
+        const p = document.createElement('div');
+        p.className = 'ct-confetti-piece';
+        const left = Math.random() * 100;
+        const delay = Math.random() * 120;
+        const dur = 820 + Math.random() * 520;
+        const sz = 7 + Math.random() * 8;
+        p.style.left = `${left}%`;
+        p.style.background = colors[i % colors.length];
+        p.style.width = `${Math.round(sz)}px`;
+        p.style.height = `${Math.round(sz * 1.4)}px`;
+        p.style.animationDelay = `${Math.round(delay)}ms`;
+        p.style.animationDuration = `${Math.round(dur)}ms`;
+        wrap.appendChild(p);
+      }
+      document.body.appendChild(wrap);
+      setTimeout(() => {
+        try {
+          wrap.remove();
+        } catch {
+          // ignore
+        }
+      }, 1600);
+    }
+
+    // “撒花三次” but keep it short and not fatiguing: one main burst + 2 tiny echoes.
+    burst(1.0);
+    setTimeout(() => burst(0.45), 220);
+    setTimeout(() => burst(0.28), 440);
+  }
+
+  function showToast(text) {
+    if (!text) return;
+    clearHighlight();
+    bubble.textContent = text;
+    bubble.style.display = 'block';
+    bubble.style.left = '50%';
+    bubble.style.transform = 'translateX(-50%)';
+    const top = isMobileLayout() ? 76 : 86;
+    bubble.style.top = `${top}px`;
+  }
+
+  function onState(p, _state, fx) {
+    if (!canShow()) return hide();
+    if (!p) return hide();
+
+    const px = Number(p.x) || 0;
+    const py = Number(p.y) || 0;
+
+    // Observe "cast happened" via VFX timestamps (fallback if user never clicks slot 1 element directly).
+    let castSeen = false;
+    const now = Date.now();
+    for (const f of Array.isArray(fx) ? fx : []) {
+      if (!f || f.byPlayerId !== playerId) continue;
+      const at = Date.parse(String(f.createdAt || ''));
+      if (!Number.isFinite(at)) continue;
+      if (at <= (st.lastSeenFxAt || 0)) continue;
+      if (['spark', 'blink', 'mark', 'echo', 'guard', 'arrow', 'cleave', 'flurry', 'fireball', 'hail', 'crit'].includes(String(f.type || ''))) {
+        castSeen = true;
+        st.lastSeenFxAt = Math.max(st.lastSeenFxAt || 0, at);
+      }
+    }
+    if (castSeen) save();
+
+    // Step transitions
+    if (st.step === 'lang') {
+      // Progress once user explicitly chose a language (we only set localStorage on click).
+      try {
+        const hasLangPref = Boolean(String(localStorage.getItem(LANG_KEY) || '').trim());
+        if (hasLangPref) setStep('move');
+      } catch {
+        // ignore
+      }
+    }
+
+    if (st.step === 'move') {
+      const dx = px - (Number(st.startX) || 0);
+      const dy = py - (Number(st.startY) || 0);
+      if (Math.sqrt(dx * dx + dy * dy) >= 18) {
+        setStep('attack');
+      }
+    }
+
+    if (st.step === 'attack') {
+      const kills = Number(p.meta?.kills || 0) || 0;
+      if (kills > (Number(st.startKills) || 0)) {
+        celebrate();
+        setStep('done');
+      }
+    }
+
+    // Render current step
+    if (st.step === 'lang') {
+      show(langToggleEl || statusEl || canvas, t('coach.lang'));
+      return;
+    }
+    if (st.step === 'move') {
+      const key = isMobileLayout() ? 'coach.move.mobile' : 'coach.move.desktop';
+      show((isMobileLayout() ? (joystickEl || canvas) : canvas), t(key));
+      return;
+    }
+    if (st.step === 'attack') {
+      show(slot4 || slot1 || canvas, t('coach.attack'));
+      return;
+    }
+
+    if (st.step === 'done') {
+      // Show ONCE (no flashing highlight). Then stop the coach.
+      if (!st.doneShownAt) {
+        st.doneShownAt = Date.now();
+        save();
+        showToast(t('coach.done'));
+        setTimeout(() => {
+          if (!st.disabled) {
+            hide();
+            setStep('end');
+          }
+        }, 2600);
+      } else {
+        // Keep it visible while the timeout is pending.
+        showToast(t('coach.done'));
+      }
+      return;
+    }
+
+    if (st.step === 'end') {
+      hide();
+      return;
+    }
+
+    hide();
+  }
+
+  return { onHello, onState, noteCast, noteOpenTab };
+}
+
+hoverTips = initHoverTooltips();
+coach = createCoach();
+
+// Test-only hooks (Playwright runs with CT_TEST=1).
+if (CT_TEST) {
+  window.__ctBuildConnectBlock = (opts) => buildConnectBlock(opts || {});
+  window.__ctTest = window.__ctTest || {};
+  window.__ctTest.addFx = (fx) => {
+    try {
+      if (!fx || typeof fx !== 'object') return;
+      recentFx.unshift(fx);
+    } catch {
+      // ignore
+    }
+  };
+  window.__ctTest.drawOnce = () => {
+    try {
+      draw();
+    } catch {
+      // surface as a page error in tests by rethrowing
+      throw new Error('drawOnce failed');
+    }
+  };
+}
 
 function persist() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify({ playerId, name: myName }));
@@ -177,12 +1433,307 @@ async function ensurePlayer() {
   if (data?.ok) {
     you = data.player;
     renderHeader();
+    refreshAvatarPreview();
   }
 }
+
+function currentAvatarUrlForPlayer(p) {
+  if (!p) return "/assets/avatar_default.png";
+  const v = Number(p.avatarVersion || 0) || 0;
+  if (v > 0) return `/api/avatars/${encodeURIComponent(p.id)}.png?v=${encodeURIComponent(String(v))}`;
+  return "/assets/avatar_default.png";
+}
+
+async function refreshAvatarPreview() {
+  if (!avatarPreviewEl) return;
+  try {
+    avatarPreviewEl.src = currentAvatarUrlForPlayer(you || { id: playerId, avatarVersion: 0 });
+  } catch {
+    // ignore
+  }
+}
+
+function refreshAvatarBgToggle() {
+  if (!avatarBgToggleBtn) return;
+  avatarBgToggleBtn.classList.toggle("is-active", Boolean(avatarBgFixEnabled));
+  avatarBgToggleBtn.setAttribute("aria-pressed", avatarBgFixEnabled ? "true" : "false");
+}
+
+refreshAvatarBgToggle();
+avatarBgToggleBtn?.addEventListener("click", () => {
+  avatarBgFixEnabled = !avatarBgFixEnabled;
+  try {
+    localStorage.setItem(AVATAR_BG_KEY, avatarBgFixEnabled ? "on" : "off");
+  } catch {
+    // ignore
+  }
+  refreshAvatarBgToggle();
+  statusEl.textContent = avatarBgFixEnabled
+    ? (lang === "en" ? "Background fix enabled." : "已開啟背景修正。")
+    : (lang === "en" ? "Background fix disabled." : "已關閉背景修正。");
+});
+
+async function fileToSquarePngDataUrl(file, size, { removeBg = false } = {}) {
+  const s = Math.max(32, Math.min(192, Math.floor(Number(size) || 64)));
+  const blob = file instanceof Blob ? file : null;
+  if (!blob) throw new Error("invalid file");
+
+  const url = URL.createObjectURL(blob);
+  try {
+    const img = await new Promise((resolve, reject) => {
+      const im = new Image();
+      im.onload = () => resolve(im);
+      im.onerror = () => reject(new Error("image decode failed"));
+      im.src = url;
+    });
+
+    const w = Math.max(1, img.naturalWidth || img.width || 1);
+    const h = Math.max(1, img.naturalHeight || img.height || 1);
+    const m = Math.min(w, h);
+    const sx = Math.floor((w - m) / 2);
+    const sy = Math.floor((h - m) / 2);
+
+    // Process at a higher resolution first; downscaling too early will blend checkerboard backgrounds
+    // into many colors and make background removal less reliable.
+    const ss = Math.max(160, Math.min(512, s * 6));
+    const scratch = document.createElement("canvas");
+    scratch.width = ss;
+    scratch.height = ss;
+    const sg = scratch.getContext("2d", { alpha: true });
+    sg.clearRect(0, 0, ss, ss);
+    sg.imageSmoothingEnabled = false;
+    sg.drawImage(img, sx, sy, m, m, 0, 0, ss, ss);
+
+    function tryRemoveBgEdges() {
+      const imgData = sg.getImageData(0, 0, ss, ss);
+      const data = imgData.data;
+      const idx = (x, y) => (y * ss + x) * 4;
+      const corners = [
+        { x: 0, y: 0 },
+        { x: ss - 1, y: 0 },
+        { x: 0, y: ss - 1 },
+        { x: ss - 1, y: ss - 1 },
+      ].map((p) => {
+        const i = idx(p.x, p.y);
+        return { r: data[i], g: data[i + 1], b: data[i + 2], a: data[i + 3] };
+      });
+
+      // If the image already has transparency near the edges, don't touch it.
+      if (corners.some((c) => c.a < 10)) return false;
+
+      const tol = 22; // RGB manhattan distance for clustering
+      const clusters = [];
+      function dist(a, b) {
+        return Math.abs(a.r - b.r) + Math.abs(a.g - b.g) + Math.abs(a.b - b.b);
+      }
+      function addCluster(c) {
+        for (const k of clusters) {
+          if (dist(k, c) <= tol) {
+            k.count += 1;
+            return;
+          }
+        }
+        if (clusters.length < 8) clusters.push({ r: c.r, g: c.g, b: c.b, count: 1 });
+      }
+
+      // Sample a thin border ring.
+      const step = Math.max(1, Math.floor(ss / 64));
+      for (let x = 0; x < ss; x += step) {
+        for (const y of [0, 1, ss - 2, ss - 1]) {
+          const i = idx(x, y);
+          if (data[i + 3] > 0) addCluster({ r: data[i], g: data[i + 1], b: data[i + 2] });
+        }
+      }
+      for (let y = 0; y < ss; y += step) {
+        for (const x of [0, 1, ss - 2, ss - 1]) {
+          const i = idx(x, y);
+          if (data[i + 3] > 0) addCluster({ r: data[i], g: data[i + 1], b: data[i + 2] });
+        }
+      }
+
+      if (clusters.length === 0) return false;
+      clusters.sort((a, b) => b.count - a.count);
+      const bg = clusters.slice(0, 6); // support checkerboard + mild compression artifacts
+
+      const matchTol = bg.length > 1 ? 28 : 22;
+      function matchesBg(r, g, b) {
+        for (const k of bg) {
+          const d = Math.abs(r - k.r) + Math.abs(g - k.g) + Math.abs(b - k.b);
+          if (d <= matchTol) return true;
+        }
+        return false;
+      }
+
+      const visited = new Uint8Array(ss * ss);
+      const qx = new Int32Array(ss * ss);
+      const qy = new Int32Array(ss * ss);
+      let qh = 0;
+      let qt = 0;
+      function push(x, y) {
+        const p = y * ss + x;
+        if (visited[p]) return;
+        visited[p] = 1;
+        qx[qt] = x;
+        qy[qt] = y;
+        qt++;
+      }
+
+      for (let x = 0; x < ss; x++) {
+        push(x, 0);
+        push(x, ss - 1);
+      }
+      for (let y = 0; y < ss; y++) {
+        push(0, y);
+        push(ss - 1, y);
+      }
+
+      let removed = 0;
+      while (qh < qt) {
+        const x = qx[qh];
+        const y = qy[qh];
+        qh++;
+        const i = idx(x, y);
+        const a = data[i + 3];
+        if (a > 0 && matchesBg(data[i], data[i + 1], data[i + 2])) {
+          data[i + 3] = 0;
+          removed++;
+          if (x > 0) push(x - 1, y);
+          if (x < ss - 1) push(x + 1, y);
+          if (y > 0) push(x, y - 1);
+          if (y < ss - 1) push(x, y + 1);
+        }
+      }
+
+      if (removed < Math.max(64, Math.floor(ss * ss * 0.02))) return false;
+      sg.putImageData(imgData, 0, 0);
+      return true;
+    }
+
+    if (removeBg) tryRemoveBgEdges();
+
+    // Content-aware crop: compute bbox of non-transparent pixels, then pad it so avatars feel consistent on map.
+    const clampN = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+    let bx = 0;
+    let by = 0;
+    let bw = ss;
+    let bh = ss;
+    try {
+      const imgData = sg.getImageData(0, 0, ss, ss);
+      const data = imgData.data;
+      let minX = ss, minY = ss, maxX = -1, maxY = -1;
+      for (let y = 0; y < ss; y++) {
+        for (let x = 0; x < ss; x++) {
+          const a = data[(y * ss + x) * 4 + 3];
+          if (a > 10) {
+            if (x < minX) minX = x;
+            if (y < minY) minY = y;
+            if (x > maxX) maxX = x;
+            if (y > maxY) maxY = y;
+          }
+        }
+      }
+      if (maxX >= 0 && maxY >= 0) {
+        // More padding keeps avatars visually consistent (big-head pixel art won't dominate the map).
+        const pad = Math.max(12, Math.floor(Math.max(maxX - minX, maxY - minY) * 0.22));
+        minX = Math.max(0, minX - pad);
+        minY = Math.max(0, minY - pad);
+        maxX = Math.min(ss - 1, maxX + pad);
+        maxY = Math.min(ss - 1, maxY + pad);
+        // force square crop
+        const cw = maxX - minX + 1;
+        const ch = maxY - minY + 1;
+        const side = Math.max(cw, ch);
+        const cx = Math.floor((minX + maxX) / 2);
+        const cy = Math.floor((minY + maxY) / 2);
+        bx = clampN(cx - Math.floor(side / 2), 0, ss - side);
+        by = clampN(cy - Math.floor(side / 2), 0, ss - side);
+        bw = side;
+        bh = side;
+      }
+    } catch {
+      // ignore
+    }
+
+    const out = document.createElement("canvas");
+    out.width = s;
+    out.height = s;
+    const g = out.getContext("2d", { alpha: true });
+    g.clearRect(0, 0, s, s);
+    g.imageSmoothingEnabled = false;
+    g.drawImage(scratch, bx, by, bw, bh, 0, 0, s, s);
+    return out.toDataURL("image/png");
+  } finally {
+    try {
+      URL.revokeObjectURL(url);
+    } catch {
+      // ignore
+    }
+  }
+}
+
+async function uploadAvatarDataUrl(pngDataUrl) {
+  const res = await fetch("/api/players/avatar", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ playerId, pngDataUrl }),
+  });
+  const data = await res.json().catch(() => null);
+  if (!data?.ok) throw new Error(data?.error || "upload failed");
+  if (you) you.avatarVersion = Number(data.avatarVersion || you.avatarVersion || 0) || 0;
+  refreshAvatarPreview();
+}
+
+async function resetAvatar() {
+  const res = await fetch("/api/players/avatar", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ playerId, reset: true }),
+  });
+  const data = await res.json().catch(() => null);
+  if (!data?.ok) throw new Error(data?.error || "reset failed");
+  if (you) you.avatarVersion = 0;
+  refreshAvatarPreview();
+}
+
+avatarUploadBtn?.addEventListener("click", () => avatarFileEl?.click());
+avatarFileEl?.addEventListener("change", async () => {
+  try {
+    const f = avatarFileEl.files && avatarFileEl.files[0];
+    if (!f) return;
+    // Optimistic preview: show cropped version immediately.
+    const dataUrl = await fileToSquarePngDataUrl(f, 64, { removeBg: Boolean(avatarBgFixEnabled) });
+    if (avatarPreviewEl) avatarPreviewEl.src = dataUrl;
+    await uploadAvatarDataUrl(dataUrl);
+    statusEl.textContent = lang === "en" ? "Avatar updated." : "頭像已更新。";
+  } catch {
+    statusEl.textContent = lang === "en" ? "Avatar upload failed." : "頭像上傳失敗。";
+    refreshAvatarPreview();
+  } finally {
+    try {
+      avatarFileEl.value = "";
+    } catch {
+      // ignore
+    }
+  }
+});
+
+avatarResetBtn?.addEventListener("click", async () => {
+  try {
+    await resetAvatar();
+    statusEl.textContent = lang === "en" ? "Avatar reset." : "頭像已恢復預設。";
+  } catch {
+    statusEl.textContent = lang === "en" ? "Reset failed." : "恢復失敗。";
+  }
+});
 
 function setMode(mode) {
   if (!ws || ws.readyState !== WebSocket.OPEN) return;
   ws.send(JSON.stringify({ type: "set_mode", mode }));
+}
+
+function allocStat(stat) {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  ws.send(JSON.stringify({ type: "alloc_stat", stat, n: 1 }));
 }
 
 function jobSkillFor(job) {
@@ -193,20 +1744,41 @@ function jobSkillFor(job) {
 
   if (spell) {
     const needsTarget = spell === "fireball" || spell === "hail";
-    return { spell, name: name || "職業技", needsTarget };
+    return { spell, name: name || (lang === 'en' ? 'Job Skill' : '職業技'), needsTarget };
   }
 
   const j = String(job || "").toLowerCase();
-  if (j === "mage") return { spell: "fireball", name: "火球雨", needsTarget: true };
-  if (j === "archer") return { spell: "arrow", name: "遠程射擊", needsTarget: false };
-  if (j === "knight") return { spell: "cleave", name: "橫掃", needsTarget: false };
-  if (j === "assassin") return { spell: "flurry", name: "疾刺", needsTarget: false };
-  if (j === "bard") return { spell: "signature", name: "回音彈", needsTarget: false };
-  return { spell: "signature", name: "練習斬", needsTarget: false };
+  if (j === "mage") return { spell: "fireball", name: lang === 'en' ? 'Fire Rain' : '火球雨', needsTarget: true };
+  if (j === "archer") return { spell: "arrow", name: lang === 'en' ? 'Arrow Shot' : '遠程射擊', needsTarget: false };
+  if (j === "knight") return { spell: "cleave", name: lang === 'en' ? 'Cleave' : '橫掃', needsTarget: false };
+  if (j === "assassin") return { spell: "flurry", name: lang === 'en' ? 'Flurry' : '疾刺', needsTarget: false };
+  if (j === "bard") return { spell: "signature", name: lang === 'en' ? 'Echo Bolt' : '回音彈', needsTarget: false };
+  return { spell: "signature", name: lang === 'en' ? 'Practice Slash' : '練習斬', needsTarget: false };
+}
+
+function jobName(job) {
+  const j = String(job || '').toLowerCase();
+  if (lang === 'en') {
+    if (j === 'novice') return 'Novice';
+    if (j === 'knight') return 'Knight';
+    if (j === 'mage') return 'Mage';
+    if (j === 'archer') return 'Archer';
+    if (j === 'assassin') return 'Assassin';
+    if (j === 'bard') return 'Bard';
+    return job ? String(job) : 'Unknown';
+  }
+  if (j === 'novice') return '初心者';
+  if (j === 'knight') return '騎士';
+  if (j === 'mage') return '法師';
+  if (j === 'archer') return '弓手';
+  if (j === 'assassin') return '刺客';
+  if (j === 'bard') return '詩人';
+  return job ? String(job) : '未知';
 }
 
 function castSpell(spell, x, y) {
   if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  coach?.noteCast?.();
   const msg = { type: "cast", spell };
   if (Number.isFinite(x) && Number.isFinite(y)) {
     msg.x = x;
@@ -226,6 +1798,7 @@ saveIntentBtn.addEventListener("click", () => {
 
 castBtn.addEventListener("click", () => {
   if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  coach?.noteCast?.();
   ws.send(JSON.stringify({ type: "cast" }));
 });
 
@@ -234,7 +1807,7 @@ saveSkill1Btn?.addEventListener("click", () => {
   const name = String(skill1NameEl?.value || "").trim().slice(0, 48);
   const effect = String(skill1EffectEl?.value || "spark").trim();
   ws.send(JSON.stringify({ type: "set_signature", name, effect }));
-  if (slot1Name) slot1Name.textContent = name || "技能1";
+  if (slot1Name) slot1Name.textContent = name || t('action.slot1');
 });
 
 resetSkill1Btn?.addEventListener("click", () => {
@@ -243,33 +1816,65 @@ resetSkill1Btn?.addEventListener("click", () => {
   if (skill1EffectEl) skill1EffectEl.value = you.signatureSpell?.effect || "spark";
 });
 
-slot1?.addEventListener("click", () => {
+saveSkill4Btn?.addEventListener("click", () => {
   if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  const name = String(skill4NameEl?.value || "").trim().slice(0, 48);
+  const spell = String(skill4SpellEl?.value || "signature").trim();
+  ws.send(JSON.stringify({ type: "set_job_skill", name, spell }));
+  // Optimistic UI update; server state will reconcile on next tick.
+  if (you) {
+    you.jobSkill = { name, spell };
+    renderHeader();
+  }
+});
+
+resetSkill4Btn?.addEventListener("click", () => {
+  if (!you) return;
+  if (skill4NameEl) skill4NameEl.value = you.jobSkill?.name || "";
+  if (skill4SpellEl) skill4SpellEl.value = you.jobSkill?.spell || "signature";
+});
+
+slot1?.addEventListener("click", () => {
+  pulse(slot1);
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  coach?.noteCast?.();
   ws.send(JSON.stringify({ type: "cast" }));
 });
 
 slot2?.addEventListener("click", () => {
+  pulse(slot2);
   if (!ws || ws.readyState !== WebSocket.OPEN) return;
   ws.send(JSON.stringify({ type: "emote", emote: "wave" }));
 });
 
 slot3?.addEventListener("click", () => {
+  pulse(slot3);
   if (!ws || ws.readyState !== WebSocket.OPEN) return;
   ws.send(JSON.stringify({ type: "ping" }));
 });
 
 slot4?.addEventListener("click", () => {
+  pulse(slot4);
   if (!ws || ws.readyState !== WebSocket.OPEN) return;
   if (!you) return;
   const sk = jobSkillFor(you.job);
   if (sk.needsTarget) {
     pendingTarget = { spell: sk.spell };
     pendingTargetUntilMs = Date.now() + 6000;
-    statusEl.textContent = `點地面施放：${sk.name}（Esc 取消）`;
+    statusEl.textContent = lang === 'en'
+      ? `Click ground to cast: ${sk.name} (Esc to cancel)`
+      : `點地面施放：${sk.name}（Esc 取消）`;
     return;
   }
   castSpell(sk.spell);
 });
+
+allocStrBtn?.addEventListener("click", () => allocStat("str"));
+allocAgiBtn?.addEventListener("click", () => allocStat("agi"));
+allocVitBtn?.addEventListener("click", () => allocStat("vit"));
+allocIntBtn?.addEventListener("click", () => allocStat("int"));
+allocDexBtn?.addEventListener("click", () => allocStat("dex"));
+allocLukBtn?.addEventListener("click", () => allocStat("luk"));
 
 window.addEventListener("keydown", (e) => {
   const tag = (e.target && e.target.tagName) || "";
@@ -282,7 +1887,7 @@ window.addEventListener("keydown", (e) => {
     if (pendingTarget) {
       pendingTarget = null;
       pendingTargetUntilMs = 0;
-      statusEl.textContent = ws && ws.readyState === WebSocket.OPEN ? "已連線" : "連線中...";
+      statusEl.textContent = ws && ws.readyState === WebSocket.OPEN ? t('status.connected') : t('status.connecting');
     }
   }
 });
@@ -293,18 +1898,25 @@ async function refreshHat() {
   if (!data?.ok) return;
   const r = data.result;
   if (!r) {
-    hatResultEl.textContent = "Answer the questions to reveal your path.";
+    hatResultEl.textContent = lang === 'en' ? 'Answer the questions to reveal your path.' : '回答問題來揭示你的道路。';
     return;
   }
-  const title = data.source === "bot" ? "CloudBot 精煉" : "分類帽";
+  const title = data.source === "bot" ? (lang === 'en' ? 'Refined by CloudBot' : 'CloudBot 精煉') : (lang === 'en' ? 'The Hat' : '分類帽');
   const reasons = Array.isArray(r.reasons) ? r.reasons : [];
   const sig = r.signature || {};
-  hatResultEl.innerHTML = `
-    <div><b>${title}</b>：你偏向 <b>${escapeHtml(r.job)}</b>。</div>
-    <div style="margin-top:6px;color:rgba(19,27,42,0.72)">${reasons.map((x) => `- ${escapeHtml(x)}`).join("<br/>")}</div>
-    <div style="margin-top:8px"><span style="color:rgba(19,27,42,0.68)">專屬招式：</span> <b>${escapeHtml(sig.name || "")}</b></div>
-    <div style="margin-top:4px;color:rgba(19,27,42,0.68)">${escapeHtml(sig.tagline || "")}</div>
-  `;
+  hatResultEl.innerHTML = lang === 'en'
+    ? `
+      <div><b>${title}</b>: you lean toward <b>${escapeHtml(r.job)}</b>.</div>
+      <div style="margin-top:6px;color:rgba(19,27,42,0.72)">${reasons.map((x) => `- ${escapeHtml(x)}`).join("<br/>")}</div>
+      <div style="margin-top:8px"><span style="color:rgba(19,27,42,0.68)">Signature:</span> <b>${escapeHtml(sig.name || "")}</b></div>
+      <div style="margin-top:4px;color:rgba(19,27,42,0.68)">${escapeHtml(sig.tagline || "")}</div>
+    `
+    : `
+      <div><b>${title}</b>：你偏向 <b>${escapeHtml(r.job)}</b>。</div>
+      <div style="margin-top:6px;color:rgba(19,27,42,0.72)">${reasons.map((x) => `- ${escapeHtml(x)}`).join("<br/>")}</div>
+      <div style="margin-top:8px"><span style="color:rgba(19,27,42,0.68)">專屬招式：</span> <b>${escapeHtml(sig.name || "")}</b></div>
+      <div style="margin-top:4px;color:rgba(19,27,42,0.68)">${escapeHtml(sig.tagline || "")}</div>
+    `;
 }
 
 let hatState = {
@@ -589,7 +2201,32 @@ makeJoinCodeBtn.addEventListener("click", async () => {
   if (hudBotEl) hudBotEl.textContent = "Bot：等待加入";
   if (joinTokenEl) joinTokenEl.value = data.joinToken || "";
   if (sandboxJoinTokenEl) sandboxJoinTokenEl.value = data.sandboxJoinToken || "";
-  if (botPromptEl) botPromptEl.value = buildBotPrompt(joinTokenEl?.value || "");
+  if (botPromptEl) {
+    botPromptEl.value = buildConnectBlock({
+      joinToken: joinTokenEl?.value || "",
+      sandboxJoinToken: sandboxJoinTokenEl?.value || "",
+    });
+  }
+
+  // Hide sandbox token section when not applicable (production usually doesn't need it).
+  try {
+    const sandboxRow = document.getElementById('sandboxJoinTokenRow');
+    if (sandboxRow) sandboxRow.hidden = !String(data.sandboxJoinToken || '').trim();
+  } catch {
+    // ignore
+  }
+
+  // Only show Docker-specific copy/help when we are in local-dev mode.
+  try {
+    const parsed = parseJoinToken(data.joinToken || "");
+    const isLocal = parsed && (parsed.baseUrl.includes("localhost") || parsed.baseUrl.includes("127.0.0.1") || parsed.baseUrl.includes("0.0.0.0"));
+    // The docker gap helper is only meaningful for localhost dev.
+    const dockerHelp = document.querySelector('[data-i18n="link.dockerGap"]');
+    if (dockerHelp) dockerHelp.toggleAttribute('hidden', !isLocal);
+  } catch {
+    // ignore
+  }
+
   try {
     await navigator.clipboard.writeText(data.joinCode);
   } catch {
@@ -618,47 +2255,29 @@ function parseJoinToken(joinToken) {
   return { version, baseUrl, joinCode, raw };
 }
 
-function buildBotPrompt(joinToken) {
-  const parsed = parseJoinToken(joinToken);
-  if (!parsed) return "（請先按『取得 Join Token』）";
+function buildConnectBlock({ joinToken, sandboxJoinToken }) {
+  const a = parseJoinToken(joinToken);
+  const b = parseJoinToken(sandboxJoinToken);
+  if (!a && !b) return lang === 'en' ? '(click Get Join Token first)' : '（請先按『取得 Join Token』）';
 
-  // CT1 is a version marker for the token format.
-  const { version, baseUrl, joinCode, raw } = parsed;
+  const isLocal =
+    Boolean(a && (a.baseUrl.includes('localhost') || a.baseUrl.includes('127.0.0.1') || a.baseUrl.includes('0.0.0.0'))) ||
+    Boolean(b && (b.baseUrl.includes('localhost') || b.baseUrl.includes('127.0.0.1') || b.baseUrl.includes('0.0.0.0')));
 
-  return [
-    "你是一個 Clawtown 遊戲代理人（CloudBot）。",
-    "你的任務：把自己綁定到我的角色，切到 H-Mode，開始在小鎮裡移動並打史萊姆。",
-    "只允許做遊戲相關行為（link/mode/goal/world/chat/intent/cast）。",
-    "",
-    "[CLAWTOWN_JOIN_V1]",
-    `join_token_version: ${version}  # CT1 是 join token 格式版本標記`,
-    `base_url: ${baseUrl}`,
-    `join_code: ${joinCode}`,
-    "",
-    "步驟：",
-    "1) Link（取得 botToken）",
-    `   curl -s -X POST "${baseUrl}/api/bot/link" -H 'Content-Type: application/json' -d '{"joinToken":"${raw}"}'`,
-    "   解析回傳 JSON，記住 botToken。",
-    "2) 切換到 H-Mode",
-    `   curl -s -X POST "${baseUrl}/api/bot/mode" -H "Authorization: Bearer <botToken>" -H 'Content-Type: application/json' -d '{"mode":"agent"}'`,
-    "3) 開始行為 loop（每 1~2 秒一次）：",
-    `   - 讀世界：curl -s "${baseUrl}/api/bot/world" -H "Authorization: Bearer <botToken>"`,
-    "   - 如果附近有活著的史萊姆：呼叫 cast（攻擊）",
-    `     curl -s -X POST "${baseUrl}/api/bot/cast" -H "Authorization: Bearer <botToken>" -H 'Content-Type: application/json' -d '{"spell":"signature"}'`,
-    "   - 否則：設定一個目標點在廣場附近走動",
-    `     curl -s -X POST "${baseUrl}/api/bot/goal" -H "Authorization: Bearer <botToken>" -H 'Content-Type: application/json' -d '{"x":520,"y":300}'`,
-    `   - 公開意圖（可選）：curl -s -X POST "${baseUrl}/api/bot/intent" ...`,
-    "",
-    "完成後請回覆我：『已連線，開始行動』",
-    "[/CLAWTOWN_JOIN_V1]",
-  ].join("\n");
+  const primary = a || b;
+  const lines = [];
+  // Always output English so it works reliably for most third-party agents.
+  lines.push('Read https://clawtown.io/skill.md and follow the instructions to connect to Clawtown.');
+  lines.push(`Join token: ${primary.raw}`);
+  lines.push('After linking: switch to H-Mode (mode="agent") and start acting (world → cast/goal loop).');
+  if (isLocal && a && b && b.raw !== a.raw) lines.push(`If your bot runs in Docker/sandbox: use join token: ${b.raw}`);
+  return lines.join('\n').trim();
 }
 
 copyJoinTokenBtn?.addEventListener("click", () => copyText(joinTokenEl?.value));
 copySandboxJoinTokenBtn?.addEventListener("click", () => copyText(sandboxJoinTokenEl?.value));
 
 copyBotPromptBtn?.addEventListener("click", () => copyText(botPromptEl?.value));
-copyBotPromptDockerBtn?.addEventListener("click", () => copyText(buildBotPrompt(sandboxJoinTokenEl?.value || "")));
 
 boardSend.addEventListener("click", () => {
   const content = String(boardInput.value || "").trim();
@@ -752,7 +2371,7 @@ canvas.addEventListener("click", (e) => {
     }
     pendingTarget = null;
     pendingTargetUntilMs = 0;
-    statusEl.textContent = "已連線";
+    statusEl.textContent = t('status.connected');
     return;
   }
 
@@ -760,6 +2379,10 @@ canvas.addEventListener("click", (e) => {
 });
 
 window.addEventListener("keydown", (e) => {
+  const tag = (e.target && e.target.tagName) || "";
+  if (tag === "INPUT" || tag === "TEXTAREA" || e.metaKey || e.ctrlKey || e.altKey) return;
+  const isArrow = e.key === "ArrowUp" || e.key === "ArrowDown" || e.key === "ArrowLeft" || e.key === "ArrowRight";
+  if (isArrow) e.preventDefault();
   if (e.key === "w" || e.key === "ArrowUp") keyState.up = true;
   if (e.key === "s" || e.key === "ArrowDown") keyState.down = true;
   if (e.key === "a" || e.key === "ArrowLeft") keyState.left = true;
@@ -767,6 +2390,10 @@ window.addEventListener("keydown", (e) => {
 });
 
 window.addEventListener("keyup", (e) => {
+  const tag = (e.target && e.target.tagName) || "";
+  if (tag === "INPUT" || tag === "TEXTAREA" || e.metaKey || e.ctrlKey || e.altKey) return;
+  const isArrow = e.key === "ArrowUp" || e.key === "ArrowDown" || e.key === "ArrowLeft" || e.key === "ArrowRight";
+  if (isArrow) e.preventDefault();
   if (e.key === "w" || e.key === "ArrowUp") keyState.up = false;
   if (e.key === "s" || e.key === "ArrowDown") keyState.down = false;
   if (e.key === "a" || e.key === "ArrowLeft") keyState.left = false;
@@ -781,37 +2408,83 @@ function stepInput() {
   if (t - lastMoveSentAt < 80) return;
   lastMoveSentAt = t;
 
-  const dx = (keyState.right ? 1 : 0) - (keyState.left ? 1 : 0);
-  const dy = (keyState.down ? 1 : 0) - (keyState.up ? 1 : 0);
+  const kdx = (keyState.right ? 1 : 0) - (keyState.left ? 1 : 0);
+  const kdy = (keyState.down ? 1 : 0) - (keyState.up ? 1 : 0);
+
+  // Joystick overrides keyboard input on mobile.
+  const dx = joyState.active ? joyState.dx : kdx;
+  const dy = joyState.active ? joyState.dy : kdy;
   if (dx === 0 && dy === 0) return;
   ws.send(JSON.stringify({ type: "move", dx, dy }));
 }
 
 function renderHeader() {
   if (!you) return;
-  jobEl.textContent = `職業：${you.job}`;
-  levelEl.textContent = `等級 ${you.level}（${you.xp}/${you.xpToNext}）`;
+  const bs = you.baseStats || {};
+  jobEl.textContent = `${t('label.job')}${jobName(you.job)}`;
+  levelEl.textContent = lang === 'en'
+    ? `${t('label.level')}${you.level} (${you.xp}/${you.xpToNext})`
+    : `${t('label.level')}${you.level}（${you.xp}/${you.xpToNext}）`;
   modeManualBtn.classList.toggle("is-active", you.mode === "manual");
   modeAgentBtn.classList.toggle("is-active", you.mode === "agent");
 
   if (hudNameEl) hudNameEl.textContent = you.name;
-  if (hudJobEl) hudJobEl.textContent = `職業:${you.job}`;
-  if (hudLevelEl) hudLevelEl.textContent = `等級:${you.level}`;
-  if (hudModeEl) hudModeEl.textContent = you.mode === "agent" ? "H-Mode" : "手動";
-  if (hudBotEl) hudBotEl.textContent = you.linkedBot ? "Bot：已連結" : "Bot：未連結";
+  if (hudJobEl) hudJobEl.textContent = `${t('hud.job')}${jobName(you.job)}`;
+  if (hudLevelEl) hudLevelEl.textContent = `${t('hud.level')}${you.level}`;
+  if (hudModeEl) hudModeEl.textContent = you.mode === 'agent' ? t('hud.modeAgent') : t('hud.modeManual');
+  if (hudBotEl) hudBotEl.textContent = you.linkedBot ? t('hud.botLinked') : t('hud.botUnlinked');
+
+  // Mobile: show joystick only in manual mode.
+  try {
+    const showJoy = isMobileLayout() && you.mode === "manual";
+    if (stageEl) stageEl.classList.toggle("has-joystick", showJoy);
+    if (joystickEl) joystickEl.hidden = !showJoy;
+    if (!showJoy) {
+      joyState.active = false;
+      joyState.dx = 0;
+      joyState.dy = 0;
+      joyState.pointerId = null;
+      if (joystickEl) joystickEl.classList.remove("is-active");
+      if (joystickKnobEl) joystickKnobEl.style.transform = "translate3d(0,0,0)";
+    }
+  } catch {
+    // ignore
+  }
 
   if (slot1Name) {
-    const n = (you.signatureSpell && you.signatureSpell.name) || "技能1";
-    slot1Name.textContent = n || "技能1";
+    const n = (you.signatureSpell && you.signatureSpell.name) || t('action.slot1');
+    slot1Name.textContent = n || t('action.slot1');
   }
 
   if (slot4Name) {
-    slot4Name.textContent = jobSkillFor(you.job).name;
+    const sk = jobSkillFor(you.job);
+    slot4Name.textContent = sk.name;
+    if (slot4) {
+      const sp = String(sk.spell || "").trim();
+      if (sp) slot4.dataset.spell = sp;
+      else delete slot4.dataset.spell;
+    }
   }
 
-  if (killsEl) killsEl.textContent = `擊殺：${(you.meta && you.meta.kills) || 0}`;
-  if (craftsEl) craftsEl.textContent = `合成：${(you.meta && you.meta.crafts) || 0}`;
-  if (pickupsEl) pickupsEl.textContent = `拾取：${(you.meta && you.meta.pickups) || 0}`;
+  if (killsEl) killsEl.textContent = `${t('label.kills')}${(you.meta && you.meta.kills) || 0}`;
+  if (craftsEl) craftsEl.textContent = `${t('label.crafts')}${(you.meta && you.meta.crafts) || 0}`;
+  if (pickupsEl) pickupsEl.textContent = `${t('label.pickups')}${(you.meta && you.meta.pickups) || 0}`;
+
+  if (statPointsEl) statPointsEl.textContent = `${t('label.points')}${you.statPoints ?? 0}`;
+  if (hpPillEl) hpPillEl.textContent = `${t('label.hp')}${you.hp ?? 0}/${you.maxHp ?? 0}`;
+  if (statStrValEl) statStrValEl.textContent = String(bs.str ?? 1);
+  if (statAgiValEl) statAgiValEl.textContent = String(bs.agi ?? 1);
+  if (statVitValEl) statVitValEl.textContent = String(bs.vit ?? 1);
+  if (statIntValEl) statIntValEl.textContent = String(bs.int ?? 1);
+  if (statDexValEl) statDexValEl.textContent = String(bs.dex ?? 1);
+  if (statLukValEl) statLukValEl.textContent = String(bs.luk ?? 1);
+
+  const canAlloc = Number(you.statPoints || 0) > 0;
+  for (const b of [allocStrBtn, allocAgiBtn, allocVitBtn, allocIntBtn, allocDexBtn, allocLukBtn]) {
+    if (!b) continue;
+    b.disabled = !canAlloc;
+    b.title = canAlloc ? (lang === 'en' ? 'Allocate 1 point' : '分配 1 點') : (lang === 'en' ? 'No available points' : '沒有可用點數');
+  }
 
   renderAchievements();
 
@@ -845,6 +2518,7 @@ function renderHeader() {
   renderInventory();
 
   renderParty();
+  refreshAvatarPreview();
 }
 
 function renderParty() {
@@ -853,17 +2527,17 @@ function renderParty() {
   const parties = state.parties || [];
   const party = pid ? parties.find((p) => p && p.id === pid) : null;
   if (!party) {
-    partyMembersEl.innerHTML = '<div class="helper">尚未加入隊伍。</div>';
+    partyMembersEl.innerHTML = `<div class="helper">${lang === 'en' ? 'Not in a party yet.' : '尚未加入隊伍。'}</div>`;
     return;
   }
 
   const leaderId = party.leaderId;
   const rows = (party.members || []).map((m) => {
-    const lead = m.id === leaderId ? '（隊長）' : '';
-    const mode = m.mode === 'agent' ? 'H-Mode' : '手動';
+    const lead = m.id === leaderId ? (lang === 'en' ? '(Leader)' : '（隊長）') : '';
+    const mode = m.mode === 'agent' ? t('hud.modeAgent') : t('hud.modeManual');
     return `<div class="item">
       <div class="meta"><span>${escapeHtml(m.name)} ${lead}</span><span>${escapeHtml(mode)} · Lv ${m.level}</span></div>
-      <div class="content">${escapeHtml(m.job)} · HP ${m.hp}/${m.maxHp}</div>
+      <div class="content">${escapeHtml(jobName(m.job))} · HP ${m.hp}/${m.maxHp}</div>
     </div>`;
   });
   partyMembersEl.innerHTML = rows.join('');
@@ -876,14 +2550,14 @@ function renderAchievements() {
   const crafts = Number(meta.crafts || 0);
 
   const list = [];
-  if (kills >= 1) list.push({ title: 'First Blood', sub: 'Defeat your first monster.' });
-  if (kills >= 10) list.push({ title: 'Slime Hunter I', sub: 'Defeat 10 monsters.' });
-  if (kills >= 50) list.push({ title: 'Slime Hunter II', sub: 'Defeat 50 monsters.' });
-  if (crafts >= 1) list.push({ title: 'Crafter', sub: 'Craft your first equipment.' });
-  if (crafts >= 10) list.push({ title: 'Workshop Regular', sub: 'Craft 10 times.' });
+  if (kills >= 1) list.push(lang === 'en' ? { title: 'First Blood', sub: 'Defeat your first monster.' } : { title: '初次擊殺', sub: '打倒你的第一隻怪物。' });
+  if (kills >= 10) list.push(lang === 'en' ? { title: 'Slime Hunter I', sub: 'Defeat 10 monsters.' } : { title: '史萊姆獵人 I', sub: '擊殺 10 隻怪物。' });
+  if (kills >= 50) list.push(lang === 'en' ? { title: 'Slime Hunter II', sub: 'Defeat 50 monsters.' } : { title: '史萊姆獵人 II', sub: '擊殺 50 隻怪物。' });
+  if (crafts >= 1) list.push(lang === 'en' ? { title: 'Crafter', sub: 'Craft your first equipment.' } : { title: '工匠', sub: '完成你的第一次合成。' });
+  if (crafts >= 10) list.push(lang === 'en' ? { title: 'Workshop Regular', sub: 'Craft 10 times.' } : { title: '工坊常客', sub: '合成 10 次。' });
 
   if (list.length === 0) {
-    achievementsEl.innerHTML = '<div class="helper">還沒有成就。去打史萊姆、合成裝備吧。</div>';
+    achievementsEl.innerHTML = `<div class="helper">${lang === 'en' ? 'No achievements yet. Go hunt slimes and craft gear.' : '還沒有成就。去打史萊姆、合成裝備吧。'}</div>`;
     return;
   }
 
@@ -907,14 +2581,14 @@ function renderInventory() {
   const jelly = items.find((it) => it && it.itemId === 'jelly');
   const jellyQty = jelly ? Number(jelly.qty || 0) : 0;
   if (craftJellyHintBtn) {
-    craftJellyHintBtn.textContent = `需要 3 Jelly（${jellyQty}）`;
+    craftJellyHintBtn.textContent = lang === 'en' ? `Need 3 Jelly (${jellyQty})` : `需要 3 Jelly（${jellyQty}）`;
   }
   if (craftJellyBtn) {
     craftJellyBtn.disabled = jellyQty < 3;
   }
 
   if (items.length === 0) {
-    inventoryEl.innerHTML = '<div class="helper">背包是空的。去打史萊姆吧。</div>';
+    inventoryEl.innerHTML = `<div class="helper">${lang === 'en' ? 'Your inventory is empty. Go hunt slimes.' : '背包是空的。去打史萊姆吧。'}</div>`;
     return;
   }
 
@@ -966,12 +2640,21 @@ function draw() {
 
   // fx
   const now = Date.now();
-  recentFx = recentFx.filter((fx) => now - Date.parse(fx.createdAt) < 1200);
+  // NOTE: createdAt comes from server time. If the client clock is behind, age can be negative.
+  // Clamp to avoid negative radii / IndexSizeError in Canvas APIs (which can cause visible flicker).
+  const clamp01 = (x) => (x < 0 ? 0 : x > 1 ? 1 : x);
+  recentFx = recentFx.filter((fx) => {
+    const created = Date.parse(fx.createdAt);
+    if (!Number.isFinite(created)) return false;
+    const age = Math.max(0, now - created);
+    return age < 1400;
+  });
   for (const fx of recentFx) {
-    const age = now - Date.parse(fx.createdAt);
-    const p = 1 - age / 1200;
+    const created = Date.parse(fx.createdAt);
+    const age = Number.isFinite(created) ? Math.max(0, now - created) : 999999;
+    const p = clamp01(1 - age / 1200);
     ctx.save();
-    ctx.globalAlpha = Math.max(0, p);
+    ctx.globalAlpha = p;
 
     const type = String(fx.type || "spark");
     const r = 18 + (1 - p) * 44;
@@ -1193,8 +2876,20 @@ function draw() {
     ctx.ellipse(p.x, p.y + 10, 12, 6, 0, 0, Math.PI * 2);
     ctx.fill();
 
-    // avatar
-    if (avatarSpriteReady) {
+    // avatar (custom uploads or default sprite)
+    const avV = Number(p.avatarVersion || 0) || 0;
+    const avUrl = avV > 0 ? `/api/avatars/${encodeURIComponent(p.id)}.png?v=${encodeURIComponent(String(avV))}` : "";
+    const customImg = avUrl ? getCustomAvatarImg(avUrl) : null;
+    let hasAvatar = false;
+
+    if (customImg) {
+      const dw = 72;
+      const dh = 72;
+      const dx = p.x - dw / 2;
+      const dy = p.y - dh + 22;
+      ctx.drawImage(customImg, dx, dy, dw, dh);
+      hasAvatar = true;
+    } else if (avatarSpriteReady) {
       // Sprite sheet is a 5x8 grid (approx). Use a clean front-facing poring frame.
       const cellW = 134;
       const cellH = 112;
@@ -1203,20 +2898,12 @@ function draw() {
       const sw = cellW;
       const sh = cellH;
 
-      const dw = 74;
-      const dh = 74;
+      const dw = 72;
+      const dh = 72;
       const dx = p.x - dw / 2;
       const dy = p.y - dh + 22;
       ctx.drawImage(avatarSprite, sx, sy, sw, sh, dx, dy, dw, dh);
-
-      // mode ring
-      if (p.mode === "agent" || isYou) {
-        ctx.strokeStyle = p.mode === "agent" ? "rgba(184,135,27,0.78)" : "rgba(43,108,176,0.72)";
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.arc(p.x, p.y + 10, 16, 0, Math.PI * 2);
-        ctx.stroke();
-      }
+      hasAvatar = true;
     } else {
       const base = isYou ? "rgba(43,108,176,0.92)" : "rgba(15,118,110,0.86)";
       const agentGlow = p.mode === "agent" ? "rgba(184,135,27,0.92)" : base;
@@ -1233,11 +2920,21 @@ function draw() {
       ctx.fill();
     }
 
+    // mode ring (shown when agent, or highlight yourself)
+    if (hasAvatar && (p.mode === "agent" || isYou)) {
+      ctx.strokeStyle = p.mode === "agent" ? "rgba(184,135,27,0.78)" : "rgba(43,108,176,0.72)";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y + 10, 16, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+
     // name
     ctx.font = "12px JetBrains Mono";
     ctx.fillStyle = "rgba(19,27,42,0.92)";
     ctx.textAlign = "center";
-    ctx.fillText(p.name, p.x, avatarSpriteReady ? p.y - 58 : p.y - 16);
+    const avatarTopY = p.y - 72 + 22;
+    ctx.fillText(p.name, p.x, hasAvatar ? avatarTopY - 12 : p.y - 16);
 
     // intent (short)
     if (p.intent) {
@@ -1248,7 +2945,7 @@ function draw() {
 
     const speech = localLastSpeech.get(p.id);
     if (speech && Date.now() - speech.atMs < 4500) {
-      drawSpeechBubble(p.x, avatarSpriteReady ? p.y - 86 : p.y - 44, speech.text);
+      drawSpeechBubble(p.x, hasAvatar ? avatarTopY - 40 : p.y - 44, speech.text);
     }
     ctx.restore();
   }
@@ -1314,7 +3011,9 @@ function drawMonsters() {
     ctx.fill();
 
     // body
-    const fill = m.kind === "slime" ? "rgba(52, 199, 89, 0.85)" : "rgba(255, 59, 48, 0.82)";
+    const fill = (m.color && typeof m.color === 'string')
+      ? String(m.color)
+      : (m.kind === "slime" ? "rgba(52, 199, 89, 0.85)" : "rgba(255, 59, 48, 0.82)");
     ctx.beginPath();
     ctx.fillStyle = fill;
     ctx.arc(x, y, 14, 0, Math.PI * 2);
@@ -1511,6 +3210,94 @@ function renderFeed(el, items, kind) {
   el.innerHTML = html;
 }
 
+function maxCreatedAt(items) {
+  const list = Array.isArray(items) ? items : [];
+  let best = 0;
+  for (const it of list) {
+    const t = Date.parse(String(it && it.createdAt));
+    if (Number.isFinite(t)) best = Math.max(best, t);
+  }
+  return best;
+}
+
+function maxChatCreatedAt(items) {
+  // For unread purposes, ignore system spam. Count only "chat" kind.
+  const list = Array.isArray(items) ? items : [];
+  let best = 0;
+  for (const it of list) {
+    if (!it || it.kind !== "chat") continue;
+    const t = Date.parse(String(it.createdAt));
+    if (Number.isFinite(t)) best = Math.max(best, t);
+  }
+  return best;
+}
+
+function computeChatUnreadCount(items, sinceMs) {
+  const list = Array.isArray(items) ? items : [];
+  let n = 0;
+  for (const it of list) {
+    if (!it || it.kind !== "chat") continue;
+    const t = Date.parse(String(it.createdAt));
+    if (!Number.isFinite(t)) continue;
+    if (t > sinceMs) n++;
+  }
+  return n;
+}
+
+function refreshChatFilterUI() {
+  const set = (btn, active) => {
+    if (!btn) return;
+    btn.classList.toggle("is-active", Boolean(active));
+    btn.setAttribute("aria-pressed", active ? "true" : "false");
+  };
+  set(chatFilterAllBtn, chatFilter === "all");
+  set(chatFilterPeopleBtn, chatFilter === "people");
+  set(chatFilterSystemBtn, chatFilter === "system");
+}
+
+function setChatFilter(next, { persist = true } = {}) {
+  const v = String(next || "").trim().toLowerCase();
+  const chosen = v === "people" || v === "system" ? v : "all";
+  chatFilter = chosen;
+  refreshChatFilterUI();
+  if (persist) {
+    try {
+      localStorage.setItem(CHAT_FILTER_KEY, chosen);
+    } catch {
+      // ignore
+    }
+  }
+  renderChat();
+}
+
+chatFilterAllBtn?.addEventListener("click", () => setChatFilter("all"));
+chatFilterPeopleBtn?.addEventListener("click", () => setChatFilter("people"));
+chatFilterSystemBtn?.addEventListener("click", () => setChatFilter("system"));
+refreshChatFilterUI();
+
+function chatItemsForFilter(items) {
+  const list = Array.isArray(items) ? items : [];
+  if (chatFilter === "system") return list.filter((c) => c && c.kind === "system");
+  if (chatFilter === "people") return list.filter((c) => c && c.kind === "chat");
+  return list;
+}
+
+function renderChat() {
+  if (!chatEl) return;
+  const list = chatItemsForFilter((state && state.chats) || []);
+  if (list.length === 0) {
+    const hint =
+      chatFilter === "system"
+        ? (lang === "en" ? "No system messages yet." : "目前沒有系統訊息。")
+        : chatFilter === "people"
+          ? (lang === "en" ? "No player messages yet." : "目前沒有玩家聊天。")
+          : (lang === "en" ? "No chat yet." : "目前沒有聊天。");
+    chatEl.innerHTML = `<div class="helper">${escapeHtml(hint)}</div>`;
+    return;
+  }
+  renderFeed(chatEl, list, "chat");
+}
+
 function botThoughtsFromChats(chats) {
   const items = Array.isArray(chats) ? chats : [];
   return items.filter((c) => {
@@ -1519,6 +3306,69 @@ function botThoughtsFromChats(chats) {
     const t = String(c.text || "");
     return t.startsWith("[BOT]");
   });
+}
+
+function isLikelyZh(s) {
+  return /[\u4E00-\u9FFF]/.test(String(s || ''));
+}
+
+function botThoughtsByLang(chats, lang) {
+  const all = botThoughtsFromChats(chats);
+  if (lang === 'en') return all.filter((c) => !isLikelyZh(c.text));
+  return all.filter((c) => isLikelyZh(c.text));
+}
+
+function renderBotThoughts() {
+  const chats = (state && state.chats) || [];
+
+  const selected = lang === 'en' ? 'en' : 'zh';
+  const items = botThoughtsByLang(chats, selected);
+  const all = botThoughtsFromChats(chats);
+  const otherCount = Math.max(0, all.length - items.length);
+
+  if (botLogEl) {
+    if (items.length === 0) {
+      const hint = selected === 'en'
+        ? (otherCount > 0 ? 'No English bot thoughts yet (try switching to 繁中).' : 'No bot thoughts yet.')
+        : (otherCount > 0 ? '目前沒有中文 Bot 想法（可切到 EN 看）。' : '目前沒有 Bot 想法。');
+      botLogEl.innerHTML = `<div class="helper">${escapeHtml(hint)}</div>`;
+    } else {
+      renderFeed(botLogEl, items, 'chat');
+    }
+  }
+
+  // Status line: help users tell "linked" vs "online".
+  if (botStatusEl) {
+    const b = you && you.bot;
+    if (!you) {
+      botStatusEl.textContent = lang === 'en' ? 'Loading player state…' : '尚未載入角色狀態。';
+    } else if (!you.linkedBot) {
+      botStatusEl.textContent = lang === 'en'
+        ? 'Bot not linked. Go to “Link Bot” to generate a Join Token.'
+        : '尚未連結 Bot。去「連結 Bot」產生 Join Token。';
+    } else {
+      const now = Date.now();
+      const seenAt = b && Number(b.lastSeenAt || 0);
+      const actionAt = b && Number(b.lastActionAt || 0);
+      const seenAgo = seenAt ? now - seenAt : null;
+      const actionAgo = actionAt ? now - actionAt : null;
+
+      if (!seenAgo || seenAgo > 12_000) {
+        botStatusEl.textContent = lang === 'en'
+          ? 'Linked, but bot seems offline (no bot API calls seen). Paste the prompt into Moltbot / Telegram and try again.'
+          : '已連結，但 Bot 目前未上線（沒有收到任何 Bot API 呼叫）。把 Prompt 貼到 Moltbot / Telegram 後再觀察。';
+      } else if (!actionAgo || actionAgo > 12_000) {
+        botStatusEl.textContent = lang === 'en'
+          ? 'Bot is online, but no recent actions (no goal/cast/intent). Check Moltbot logs or rate limits.'
+          : 'Bot 已上線，但最近沒有動作（沒有 goal/cast/intent）。請檢查 Moltbot 是否卡住，或看是否被 rate limit。';
+      } else {
+        const thought = b && String(b.thought || '').trim();
+        botStatusEl.textContent = thought
+          ? (lang === 'en' ? `Bot is online. Latest thought: ${thought}` : `Bot 已上線。最新想法：${thought}`)
+          : (lang === 'en' ? 'Bot is online and acting.' : 'Bot 已上線並在行動中。');
+      }
+    }
+  }
 }
 
 function escapeHtml(s) {
@@ -1530,16 +3380,16 @@ function escapeHtml(s) {
 }
 
 function connect() {
-  statusEl.textContent = "連線中...";
+  statusEl.textContent = t('status.connecting');
   const qs = new URLSearchParams({ playerId, name: myName });
   ws = new WebSocket(`${location.origin.replace(/^http/, "ws")}/ws?${qs.toString()}`);
 
   ws.addEventListener("open", () => {
-    statusEl.textContent = "已連線";
+    statusEl.textContent = t('status.connected');
   });
 
   ws.addEventListener("close", () => {
-    statusEl.textContent = "已斷線（重連中...）";
+    statusEl.textContent = t('status.reconnecting');
     setTimeout(connect, 500);
   });
 
@@ -1554,11 +3404,48 @@ function connect() {
       recentFx = (msg.recentFx || []).concat(recentFx);
       window.__ct.recentFx = recentFx;
 
+      coach?.onHello?.(you);
+
       renderHeader();
       renderFeed(boardEl, state.board || [], "board");
-      renderFeed(chatEl, state.chats || [], "chat");
-      renderFeed(botLogEl, botThoughtsFromChats(state.chats || []), "chat");
+      renderChat();
+      renderBotThoughts();
       refreshHat();
+      try {
+        // Unread counts: compute against last seen timestamps. No accumulation to avoid flapping.
+        const chatMax = maxChatCreatedAt(state.chats || []);
+        const boardMax = maxCreatedAt(state.board || []);
+
+        // First boot: don't show unread badges for the initial snapshot.
+        if (!unread.chatSeenAt) unread.chatSeenAt = chatMax;
+        if (!unread.boardSeenAt) unread.boardSeenAt = boardMax;
+
+        if (activeTabKey !== "chat") {
+          unread.chatCount = Math.min(999, computeChatUnreadCount(state.chats || [], unread.chatSeenAt || 0));
+        } else {
+          unread.chatCount = 0;
+          unread.chatSeenAt = Math.max(unread.chatSeenAt || 0, chatMax);
+        }
+
+        if (activeTabKey !== "board") {
+          const since = unread.boardSeenAt || 0;
+          let n = 0;
+          for (const it of state.board || []) {
+            const t = Date.parse(String(it && it.createdAt));
+            if (Number.isFinite(t) && t > since) n++;
+          }
+          unread.boardCount = Math.min(999, n);
+        } else {
+          unread.boardCount = 0;
+          unread.boardSeenAt = Math.max(unread.boardSeenAt || 0, boardMax);
+        }
+
+        persistUnread();
+        renderBadges();
+      } catch {
+        // ignore
+      }
+      coach?.onState?.(you, state, recentFx);
       return;
     }
     if (msg.type === "state") {
@@ -1580,17 +3467,59 @@ function connect() {
         }
       }
 
+      // Also show structured bot thoughts as speech bubbles (without spamming chat).
+      // Allow a bit of clock skew between server and client.
+      const now = Date.now();
+      for (const pp of state.players || []) {
+        const b = pp && pp.bot;
+        const text = b && String(b.thought || "").trim();
+        const at = b && Number(b.thoughtAt || 0);
+        if (!text || !Number.isFinite(at) || at <= 0) continue;
+        if (Math.abs(now - at) > 25_000) continue;
+        const prev = localLastSpeech.get(pp.id);
+        if (!prev || at > prev.atMs) localLastSpeech.set(pp.id, { text: `[BOT] ${text}`.slice(0, 200), atMs: at });
+      }
+
       renderHeader();
       renderFeed(boardEl, state.board || [], "board");
-      renderFeed(chatEl, state.chats || [], "chat");
-      renderFeed(botLogEl, botThoughtsFromChats(state.chats || []), "chat");
+      renderChat();
+      renderBotThoughts();
       draw();
+      try {
+        const chatMax = maxChatCreatedAt(state.chats || []);
+        const boardMax = maxCreatedAt(state.board || []);
+        if (activeTabKey !== "chat") {
+          unread.chatCount = Math.min(999, computeChatUnreadCount(state.chats || [], unread.chatSeenAt || 0));
+        } else {
+          unread.chatCount = 0;
+          unread.chatSeenAt = Math.max(unread.chatSeenAt || 0, chatMax);
+        }
+        if (activeTabKey !== "board") {
+          // Count board unread (simple count since timestamp).
+          const since = unread.boardSeenAt || 0;
+          let n = 0;
+          for (const it of state.board || []) {
+            const t = Date.parse(String(it && it.createdAt));
+            if (Number.isFinite(t) && t > since) n++;
+          }
+          unread.boardCount = Math.min(999, n);
+        } else {
+          unread.boardCount = 0;
+          unread.boardSeenAt = Math.max(unread.boardSeenAt || 0, boardMax);
+        }
+        persistUnread();
+        renderBadges();
+      } catch {
+        // ignore
+      }
+      coach?.onState?.(you, state, recentFx);
       return;
     }
     if (msg.type === "fx") {
       recentFx.unshift(msg.fx);
       window.__ct = window.__ct || {};
       window.__ct.recentFx = recentFx;
+      coach?.onState?.(you, state, recentFx);
       return;
     }
 
@@ -1607,18 +3536,6 @@ function connect() {
   });
 }
 
-function loop() {
-  stepInput();
-  draw();
-  requestAnimationFrame(loop);
-}
-
-ensurePlayer().then(() => {
-  persist();
-  connect();
-  loop();
-});
-
 function openOnboardingIfNeeded() {
   if (!onboardingEl) return;
   const key = "clawtown.onboarding.v1";
@@ -1638,7 +3555,7 @@ function openOnboardingIfNeeded() {
     "click",
     () => {
       close();
-      openTab("hat");
+      openTab("link");
     },
     { once: true },
   );
@@ -1653,6 +3570,7 @@ function openOnboardingIfNeeded() {
 }
 
 openOnboardingIfNeeded();
+
 function loop() {
   stepInput();
   draw();
@@ -1664,38 +3582,3 @@ ensurePlayer().then(() => {
   connect();
   loop();
 });
-
-function openOnboardingIfNeeded() {
-  if (!onboardingEl) return;
-  const key = "clawtown.onboarding.v1";
-  if (localStorage.getItem(key)) return;
-
-  onboardingEl.classList.add("is-open");
-  onboardingEl.setAttribute("aria-hidden", "false");
-
-  function close() {
-    onboardingEl.classList.remove("is-open");
-    onboardingEl.setAttribute("aria-hidden", "true");
-    localStorage.setItem(key, "1");
-  }
-
-  onboardingStart?.addEventListener("click", () => close(), { once: true });
-  onboardingGoHat?.addEventListener(
-    "click",
-    () => {
-      close();
-      openTab("hat");
-    },
-    { once: true },
-  );
-
-  onboardingEl.addEventListener(
-    "click",
-    (e) => {
-      if (e.target === onboardingEl) close();
-    },
-    { once: true },
-  );
-}
-
-openOnboardingIfNeeded();
