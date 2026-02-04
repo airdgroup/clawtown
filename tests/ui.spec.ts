@@ -34,6 +34,7 @@ test('UI baseline looks polished', async ({ page }) => {
   await closeOnboarding(page);
 
   await expect(page.locator('#game')).toBeVisible();
+  await expect(page.locator('#minimap')).toBeVisible();
   await expect(page.locator('#actionbar')).toBeVisible();
   await expect(page.locator('.ui-window')).toBeVisible();
   await expect(page.locator('.ui-tab[data-tab="character"]')).toBeVisible();
@@ -50,6 +51,40 @@ test('UI baseline looks polished', async ({ page }) => {
     mask: [page.locator('#chat'), page.locator('#board'), page.locator('#status')],
     fullPage: true,
   });
+});
+
+test('Minimap: renders players/monsters dots (not blank)', async ({ page }) => {
+  await resetWorld(page);
+  await page.goto('/');
+  await waitForFonts(page);
+  await closeOnboarding(page);
+
+  await page.waitForFunction(() => {
+    const st = (window as any).__ct?.state;
+    return st && Array.isArray(st.players) && st.players.length >= 1 && Array.isArray(st.monsters) && st.monsters.length >= 1;
+  });
+
+  const nonBg = await page.locator('#minimap').evaluate((c) => {
+    const canvas = c as HTMLCanvasElement;
+    const g = canvas.getContext('2d');
+    if (!g) return 0;
+    const { data } = g.getImageData(0, 0, canvas.width, canvas.height);
+    let n = 0;
+    for (let i = 0; i < data.length; i += 4) {
+      const r = data[i];
+      const g0 = data[i + 1];
+      const b = data[i + 2];
+      const a = data[i + 3];
+      if (a < 10) continue;
+      // ignore near-white background pixels
+      if (r > 240 && g0 > 240 && b > 240) continue;
+      n++;
+      if (n > 40) break;
+    }
+    return n;
+  });
+
+  expect(nonBg).toBeGreaterThan(20);
 });
 
 test('Combat: hotkey 1 damages a nearby monster', async ({ page }) => {

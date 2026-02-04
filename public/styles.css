@@ -182,6 +182,20 @@ main {
     0 14px 32px rgba(9, 19, 36, 0.12);
 }
 
+.minimap {
+  position: absolute;
+  right: 18px;
+  bottom: 18px;
+  width: 180px;
+  height: 120px;
+  border-radius: 16px;
+  border: 1px solid rgba(19, 27, 42, 0.18);
+  background: rgba(255, 255, 255, 0.55);
+  box-shadow: 0 14px 30px rgba(9, 19, 36, 0.14);
+  z-index: 5;
+  pointer-events: none;
+}
+
 .hud {
   position: absolute;
   left: 18px;
@@ -641,6 +655,15 @@ main {
     padding-bottom: calc(var(--drawer-collapsed) + 148px + env(safe-area-inset-bottom));
   }
 
+  .minimap {
+    right: 10px;
+    bottom: calc(var(--drawer-collapsed) + 12px + env(safe-area-inset-bottom));
+    width: 140px;
+    height: 92px;
+    border-radius: 14px;
+    opacity: 0.92;
+  }
+
   #game {
     border-radius: 0;
     border: 0;
@@ -919,6 +942,15 @@ main {
     border-radius: 0;
     border: 0;
     box-shadow: none;
+  }
+
+  .minimap {
+    right: 10px;
+    bottom: 10px;
+    width: 160px;
+    height: 104px;
+    border-radius: 14px;
+    opacity: 0.92;
   }
 
   /* Make the menu button available even when width > 640. */

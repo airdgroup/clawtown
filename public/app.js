@@ -16,6 +16,8 @@ const drawerHandleEl = document.getElementById("drawerHandle");
 const mobileMenuBtn = document.getElementById("mobileMenu");
 const joystickEl = document.getElementById("joystick");
 const joystickKnobEl = joystickEl ? joystickEl.querySelector(".joystick-knob") : null;
+const minimapEl = document.getElementById("minimap");
+const minimapCtx = minimapEl ? minimapEl.getContext("2d") : null;
 
 // Temporary avatar sprite (can be replaced with better skins later)
 const avatarSprite = new Image();
@@ -2980,6 +2982,80 @@ function draw() {
     } finally {
       ctx.restore();
     }
+  }
+
+  drawMinimap();
+}
+
+function drawMinimap() {
+  if (!minimapEl || !minimapCtx || !state || !state.world) return;
+  const w = minimapEl.width;
+  const h = minimapEl.height;
+  minimapCtx.clearRect(0, 0, w, h);
+
+  // Background (soft) + border
+  minimapCtx.fillStyle = "rgba(255,255,255,0.68)";
+  minimapCtx.fillRect(0, 0, w, h);
+  minimapCtx.strokeStyle = "rgba(19,27,42,0.18)";
+  minimapCtx.lineWidth = 2;
+  minimapCtx.strokeRect(1, 1, w - 2, h - 2);
+
+  const worldW = Number(state.world.width) * Number(state.world.tileSize);
+  const worldH = Number(state.world.height) * Number(state.world.tileSize);
+  if (!Number.isFinite(worldW) || !Number.isFinite(worldH) || worldW <= 0 || worldH <= 0) return;
+
+  const scale = Math.min(w / worldW, h / worldH);
+  const ox = (w - worldW * scale) / 2;
+  const oy = (h - worldH * scale) / 2;
+  const tx = (x) => ox + Number(x) * scale;
+  const ty = (y) => oy + Number(y) * scale;
+
+  // Drops
+  try {
+    for (const d of state.drops || []) {
+      minimapCtx.fillStyle = "rgba(184,135,27,0.85)";
+      minimapCtx.beginPath();
+      minimapCtx.arc(tx(d.x), ty(d.y), 2.2, 0, Math.PI * 2);
+      minimapCtx.fill();
+    }
+  } catch {
+    // ignore
+  }
+
+  // Monsters
+  try {
+    for (const m of state.monsters || []) {
+      if (!m || !m.alive) continue;
+      const c = m.color ? String(m.color) : "rgba(52,199,89,0.9)";
+      minimapCtx.fillStyle = c;
+      minimapCtx.beginPath();
+      minimapCtx.arc(tx(m.x), ty(m.y), 3, 0, Math.PI * 2);
+      minimapCtx.fill();
+    }
+  } catch {
+    // ignore
+  }
+
+  // Players
+  try {
+    for (const p of state.players || []) {
+      const isYou = p && p.id === playerId;
+      const px = tx(p.x);
+      const py = ty(p.y);
+      minimapCtx.fillStyle = isYou ? "rgba(43,108,176,0.95)" : "rgba(15,118,110,0.85)";
+      minimapCtx.beginPath();
+      minimapCtx.arc(px, py, isYou ? 4 : 3, 0, Math.PI * 2);
+      minimapCtx.fill();
+      if (isYou) {
+        minimapCtx.strokeStyle = "rgba(255,255,255,0.9)";
+        minimapCtx.lineWidth = 2;
+        minimapCtx.beginPath();
+        minimapCtx.arc(px, py, 6.5, 0, Math.PI * 2);
+        minimapCtx.stroke();
+      }
+    }
+  } catch {
+    // ignore
   }
 }
 
