@@ -325,6 +325,14 @@ test('Mobile: bottom drawer collapses and map stays playable', async ({ page }) 
   // Actionbar should be in the lower band of the screen (not mid-map).
   expect(ab!.y).toBeGreaterThan(gameBox!.y + gameBox!.height * 0.55);
 
+  // Slot 4 (ATK/job skill) must stay fully within the viewport (tappable on phones).
+  const slot4 = await page.locator('#slot4').boundingBox();
+  expect(slot4).toBeTruthy();
+  expect(slot4!.x).toBeGreaterThanOrEqual(-1);
+  expect(slot4!.y).toBeGreaterThanOrEqual(-1);
+  expect(slot4!.x + slot4!.width).toBeLessThanOrEqual(390 + 2);
+  expect(slot4!.y + slot4!.height).toBeLessThanOrEqual(844 + 2);
+
   await page.click('#mobileMenu');
   await expect(page.locator('#panel')).not.toHaveClass(/is-collapsed/);
 });
@@ -338,6 +346,8 @@ test('Mobile landscape: panel drawer toggles with menu button', async ({ page })
 
   await expect(page.locator('#mobileMenu')).toBeVisible();
   await expect(page.locator('#panel')).toHaveClass(/is-collapsed/);
+  await expect(page.locator('#actionbar')).toBeVisible();
+  await expect(page.locator('#joystick')).toBeVisible();
 
   await page.click('#mobileMenu');
   await expect(page.locator('#panel')).not.toHaveClass(/is-collapsed/);

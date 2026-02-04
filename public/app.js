@@ -796,12 +796,38 @@ applyI18n();
 
 // Mobile drawer (bottom sheet) — keep the map large.
 const MOBILE_DRAWER_KEY = "clawtown.mobileDrawer"; // "open" | "collapsed"
+function isProbablyIOS() {
+  try {
+    const ua = String(navigator.userAgent || "");
+    if (/iPad|iPhone|iPod/i.test(ua)) return true;
+    // iPadOS 13+ reports as Mac; detect via touch points.
+    return navigator.platform === "MacIntel" && (navigator.maxTouchPoints || 0) > 1;
+  } catch {
+    return false;
+  }
+}
+
 function isMobileLayout() {
   try {
-    if (!window.matchMedia) return false;
-    if (window.matchMedia("(max-width: 640px)").matches) return true;
-    // Landscape phones/tablets: treat as mobile when height is small.
-    return window.matchMedia("(max-height: 520px) and (max-width: 1024px) and (orientation: landscape)").matches;
+    const mm = window.matchMedia;
+    if (!mm) return false;
+
+    // Primary: CSS media queries (fast path).
+    if (mm("(max-width: 640px)").matches) return true;
+    if (mm("(max-height: 520px) and (max-width: 1024px) and (orientation: landscape)").matches) return true;
+
+    // Fallback: Some Safari modes (e.g. "Request Desktop Website") can lie about viewport width.
+    // Treat iOS touch devices as mobile based on screen size, not layout viewport.
+    const touch = (navigator.maxTouchPoints || 0) > 0;
+    const coarse = mm("(pointer: coarse)").matches;
+    if (!touch && !coarse) return false;
+
+    const sw = Math.min(Number(screen?.width || 0) || 0, Number(screen?.height || 0) || 0) || 0;
+    if (isProbablyIOS() && sw > 0 && sw <= 520) return true;
+
+    // Generic touch fallback.
+    const w = Math.min(window.innerWidth || 0, window.innerHeight || 0) || 0;
+    return w > 0 && w <= 520;
   } catch {
     return false;
   }
@@ -2416,7 +2442,8 @@ function stepInput() {
   if (!you) return;
   if (you.mode !== "manual") return;
   const t = Date.now();
-  if (t - lastMoveSentAt < 80) return;
+  // Mobile joystick feels better with a slightly higher send rate.
+  if (t - lastMoveSentAt < 50) return;
   lastMoveSentAt = t;
 
   const kdx = (keyState.right ? 1 : 0) - (keyState.left ? 1 : 0);
