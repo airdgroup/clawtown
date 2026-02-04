@@ -7,6 +7,7 @@ This doc is the “do this and it’ll work” plan for shipping Clawtown as a r
 Shipped:
 
 - Fly.io deployment + custom domain `https://clawtown.io`
+- In-browser minimap overlay (renders from the live WS state; no bot token required)
 - Join tokens are bot-friendly:
   - Join code persisted on disk (`.data/join_codes.json`, 24h TTL) to survive restarts
   - `POST /api/bot/link` returns the existing botToken for that player when possible (new chat session re-link)
@@ -19,7 +20,7 @@ Shipped:
 In progress:
 
 - Moltbot integration: poll `/api/bot/events` periodically and forward to Telegram/WhatsApp, optionally attach `map.png`.
-- Minimap UI (in browser) + party coordination pings.
+- Party coordination pings / richer social UX.
 
 Next:
 
