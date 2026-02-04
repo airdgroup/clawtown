@@ -3074,14 +3074,15 @@ function draw() {
         ctx.fill();
 
         // avatar (custom uploads or default sprite)
+        const AV_SIZE = 78; // slightly larger for readability + personality
         const avV = Number(p.avatarVersion || 0) || 0;
         const avUrl = avV > 0 ? `/api/avatars/${encodeURIComponent(p.id)}.png?v=${encodeURIComponent(String(avV))}` : "";
         const customImg = avUrl ? getCustomAvatarImg(avUrl) : null;
         let hasAvatar = false;
 
         if (customImg && customImg.complete && customImg.naturalWidth > 0) {
-          const dw = 72;
-          const dh = 72;
+          const dw = AV_SIZE;
+          const dh = AV_SIZE;
           const dx = p.x - dw / 2;
           const dy = p.y - dh + 22;
           try {
@@ -3100,8 +3101,8 @@ function draw() {
           const sw = cellW;
           const sh = cellH;
 
-          const dw = 72;
-          const dh = 72;
+          const dw = AV_SIZE;
+          const dh = AV_SIZE;
           const dx = p.x - dw / 2;
           const dy = p.y - dh + 22;
           ctx.drawImage(avatarSprite, sx, sy, sw, sh, dx, dy, dw, dh);
@@ -3135,7 +3136,7 @@ function draw() {
         ctx.font = "12px JetBrains Mono";
         ctx.fillStyle = "rgba(19,27,42,0.92)";
         ctx.textAlign = "center";
-        const avatarTopY = p.y - 72 + 22;
+        const avatarTopY = p.y - AV_SIZE + 22;
         ctx.fillText(p.name, p.x, hasAvatar ? avatarTopY - 12 : p.y - 16);
 
         // intent (short)

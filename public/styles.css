@@ -1086,8 +1086,8 @@ label {
 }
 
 .avatar-preview {
-  width: 72px;
-  height: 72px;
+  width: 84px;
+  height: 84px;
   border-radius: 18px;
   border: 1px solid rgba(19, 27, 42, 0.16);
   background: rgba(255, 255, 255, 0.68);
@@ -1121,8 +1121,8 @@ label {
 
 @media (max-width: 640px) {
   .avatar-preview {
-    width: 56px;
-    height: 56px;
+    width: 64px;
+    height: 64px;
     border-radius: 16px;
   }
 }
