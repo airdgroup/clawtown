@@ -196,6 +196,13 @@ main {
   pointer-events: none;
 }
 
+/* Touch devices (iPhone/iPad): keep the map clean; minimap comes back when the world is large enough. */
+@media (pointer: coarse) and (hover: none) {
+  .minimap {
+    display: none;
+  }
+}
+
 .hud {
   position: absolute;
   left: 18px;
