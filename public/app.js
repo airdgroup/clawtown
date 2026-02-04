@@ -1536,6 +1536,12 @@ async function fileToSquarePngDataUrl(file, size, { removeBg = false } = {}) {
         if (clusters.length < 8) clusters.push({ r: c.r, g: c.g, b: c.b, count: 1 });
       }
 
+      // Always include corner colors — many “transparent” images are actually checkerboard pixels,
+      // and some avatars touch the border ring (so border sampling alone may miss background colors).
+      for (const c of corners) {
+        if (c.a > 0) addCluster({ r: c.r, g: c.g, b: c.b });
+      }
+
       // Sample a thin border ring.
       const step = Math.max(1, Math.floor(ss / 64));
       for (let x = 0; x < ss; x += step) {
@@ -1555,7 +1561,10 @@ async function fileToSquarePngDataUrl(file, size, { removeBg = false } = {}) {
       clusters.sort((a, b) => b.count - a.count);
       const bg = clusters.slice(0, 6); // support checkerboard + mild compression artifacts
 
-      const matchTol = bg.length > 1 ? 28 : 22;
+      // If this looks like a “checkerboard”/white background, be more forgiving.
+      const brightness = (c) => (c.r + c.g + c.b) / 3;
+      const brightBg = bg.filter((c) => brightness(c) >= 205);
+      const matchTol = brightBg.length >= 2 ? 46 : bg.length > 1 ? 32 : 22;
       function matchesBg(r, g, b) {
         for (const k of bg) {
           const d = Math.abs(r - k.r) + Math.abs(g - k.g) + Math.abs(b - k.b);
