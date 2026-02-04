@@ -41,6 +41,9 @@ npm run test:ui:update
 Core UX (current)
 
 - Desktop layout: the left stage (map + actionbar) is fixed; only the right panel scrolls.
+- Mobile UX:
+  - Portrait: bottom drawer (collapsed by default), joystick bottom-left, skill buttons bottom-right (2x2) to keep the map readable.
+  - Landscape: panel becomes a right-side drawer; joystick + skills remain accessible (no “scroll to find controls”).
 - Language: zh-Hant / EN toggle lives on the right panel top bar; selection persists in localStorage (`clawtown.lang`).
 - Player growth: level gives stat points; allocate STR/AGI/VIT/INT/DEX/LUK; derived stats update.
 - Monsters: default 5 slimes with distinct palette-friendly colors.
