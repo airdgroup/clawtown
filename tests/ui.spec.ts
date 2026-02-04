@@ -335,6 +335,28 @@ test('Mobile landscape: page can scroll a bit (Safari chrome can collapse)', asy
   await ctx.close();
 });
 
+test('Mobile: action bar buttons disable touch zoom (touch-action: none)', async ({ browser }) => {
+  const ctx = await browser.newContext({
+    viewport: { width: 390, height: 844 },
+    isMobile: true,
+    hasTouch: true,
+  });
+  const page = await ctx.newPage();
+
+  await resetWorld(page);
+  await page.goto('/');
+  await waitForFonts(page);
+  await closeOnboarding(page);
+
+  const touchAction = await page.locator('#slot4').evaluate((el) => getComputedStyle(el).touchAction);
+  expect(touchAction).toBe('none');
+
+  const gameTouchAction = await page.locator('#game').evaluate((el) => getComputedStyle(el).touchAction);
+  expect(gameTouchAction === 'pan-y' || gameTouchAction === 'auto').toBeTruthy();
+
+  await ctx.close();
+});
+
 test('Sorting Hat produces a result', async ({ page }) => {
   await resetWorld(page);
   await page.goto('/');

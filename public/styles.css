@@ -747,7 +747,8 @@ main {
     height: 52px;
     padding: 10px 10px;
     border-radius: 18px;
-    touch-action: manipulation;
+    /* iOS Safari: prevent double-tap zoom on the action bar. */
+    touch-action: none;
   }
 
   .slot-ghost {
@@ -864,7 +865,9 @@ main {
 
   /* Make the whole map area ignore browser zoom gestures; interactions are game-controlled. */
   #game {
-    touch-action: none;
+    /* Allow vertical panning so iOS Safari can collapse its URL/tab chrome.
+       We don't rely on drag gestures on the map; taps are enough for click-to-move. */
+    touch-action: pan-y;
   }
 
   .ui-tab,
