@@ -1930,6 +1930,13 @@ app.get("/api/health", (_req, res) => {
   res.json({ ok: true, time: new Date().toISOString() });
 });
 
+// Public snapshot (same data as the WS "state" payload). Used as a WebKit/iOS fallback when WS
+// messages stall (some mobile environments can keep the socket open but drop messages).
+app.get("/api/state", (_req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  res.json({ ok: true, state: currentState() });
+});
+
 app.post("/api/players/ensure", (req, res) => {
   const { playerId, name } = req.body || {};
   const p = getOrCreatePlayer(playerId, name);

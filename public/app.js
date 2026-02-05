@@ -3694,13 +3694,24 @@ function connect() {
   statusEl.textContent = t('status.connecting');
   const qs = new URLSearchParams({ playerId, name: myName });
   ws = new WebSocket(`${location.origin.replace(/^http/, "ws")}/ws?${qs.toString()}`);
+  let lastStateAtMs = 0;
+  let pollTimer = null;
 
   ws.addEventListener("open", () => {
+    // Some WebKit/iOS environments can show WS as "open" yet stall message delivery.
+    // Keep the UX honest until we actually have a world snapshot.
     statusEl.textContent = t('status.connected');
+    setTimeout(() => {
+      if (!state || !state.world) {
+        statusEl.textContent = lang === "en" ? "Syncing world…" : "同步世界中…";
+        startPolling();
+      }
+    }, 900);
   });
 
   ws.addEventListener("close", () => {
     statusEl.textContent = t('status.reconnecting');
+    stopPolling();
     setTimeout(connect, 500);
   });
 
@@ -3712,9 +3723,49 @@ function connect() {
     if (!Array.isArray(next.players)) return false;
     state = next;
     lastGoodState = next;
+    lastStateAtMs = Date.now();
     window.__ct = window.__ct || {};
     window.__ct.state = state;
     return true;
+  }
+
+  async function fetchStateSnapshot() {
+    try {
+      const res = await fetch("/api/state", { cache: "no-store" });
+      const data = await res.json().catch(() => null);
+      if (!data || !data.ok || !data.state) return false;
+      if (!acceptState(data.state)) return false;
+      // Minimal UI refresh so the map never stays blank.
+      if (state?.players) {
+        you = state.players.find((p) => p.id === playerId) || you;
+        window.__ct = window.__ct || {};
+        window.__ct.you = you;
+      }
+      renderHeader();
+      draw();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  function startPolling() {
+    if (pollTimer) return;
+    pollTimer = setInterval(async () => {
+      // If WS resumed, stop polling.
+      if (ws && ws.readyState === WebSocket.OPEN && lastStateAtMs && Date.now() - lastStateAtMs < 1200) {
+        stopPolling();
+        statusEl.textContent = t('status.connected');
+        return;
+      }
+      await fetchStateSnapshot();
+    }, 650);
+  }
+
+  function stopPolling() {
+    if (!pollTimer) return;
+    clearInterval(pollTimer);
+    pollTimer = null;
   }
 
   ws.addEventListener("message", (e) => {
@@ -3728,6 +3779,7 @@ function connect() {
       if (msg.type === "hello") {
         you = msg.you;
         if (!acceptState(msg.state)) return;
+      stopPolling();
       window.__ct = window.__ct || {};
       window.__ct.you = you;
       recentFx = (msg.recentFx || []).concat(recentFx);
@@ -3779,6 +3831,7 @@ function connect() {
     }
     if (msg.type === "state") {
       if (!acceptState(msg.state)) return;
+      stopPolling();
       if (state?.players) {
         you = state.players.find((p) => p.id === playerId) || you;
         window.__ct.you = you;

@@ -360,6 +360,29 @@ test('Mobile landscape: panel drawer toggles with menu button', async ({ page })
   await expect(page.locator('#panel')).toHaveClass(/is-collapsed/);
 });
 
+test('Fallback: /api/state polling recovers when WS messages stall (iOS/WebKit)', async ({ page }) => {
+  await resetWorld(page);
+  await page.addInitScript(() => {
+    const Orig = window.WebSocket;
+    // Simulate a WebKit failure mode: socket opens but message delivery/handlers stall.
+    // Our client should fall back to polling /api/state so the map never stays blank.
+    // eslint-disable-next-line no-global-assign
+    window.WebSocket = class extends Orig {
+      addEventListener(type: any, listener: any, options: any) {
+        if (String(type) === 'message') return;
+        // @ts-ignore
+        return super.addEventListener(type, listener, options);
+      }
+    } as any;
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');
+  await waitForFonts(page);
+  await closeOnboarding(page);
+
+  await page.waitForFunction(() => Boolean((window as any).__ct?.state?.world), null, { timeout: 5000 });
+});
+
 test('Mobile: joystick input takes over from H-Mode (agent) to manual', async ({ page }) => {
   await resetWorld(page);
   await page.setViewportSize({ width: 390, height: 844 });
