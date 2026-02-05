@@ -583,6 +583,19 @@ test('Join code generation works', async ({ page }) => {
   await expect(page.locator('#joinToken')).toHaveValue(/CT1\|http:\/\/127\.0\.0\.1:3100\|[A-Z2-9]{6}/);
 });
 
+test('Invite: link section shows canonical URL', async ({ page }) => {
+  await resetWorld(page);
+  await page.goto('/');
+  await waitForFonts(page);
+  await closeOnboarding(page);
+
+  await page.locator('.ui-tab[data-tab="link"]').click();
+  await expect(page.locator('#inviteLink')).toBeVisible();
+
+  const origin = await page.evaluate(() => location.origin);
+  await expect(page.locator('#inviteLink')).toHaveText(origin);
+});
+
 test('Join token can be used to link a bot', async ({ page }) => {
   await resetWorld(page);
   await page.goto('/');

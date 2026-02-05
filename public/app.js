@@ -127,6 +127,10 @@ const copySandboxJoinTokenBtn = document.getElementById("copySandboxJoinToken");
 const botPromptEl = document.getElementById("botPrompt");
 const copyBotPromptBtn = document.getElementById("copyBotPrompt");
 
+const inviteShareBtn = document.getElementById("inviteShare");
+const inviteCopyBtn = document.getElementById("inviteCopy");
+const inviteLinkEl = document.getElementById("inviteLink");
+
 const skill1NameEl = document.getElementById("skill1Name");
 const skill1EffectEl = document.getElementById("skill1Effect");
 const saveSkill1Btn = document.getElementById("saveSkill1");
@@ -382,6 +386,10 @@ const I18N = {
     "link.dockerGap": "只有本機開發才需要：Bot 跑在 Docker 時，不能用 localhost，請改用 host.docker.internal 版 token。",
     "link.skillHelp": "最穩的做法：叫 Bot 讀 https://clawtown.io/skill.md（不依賴 clawtown CLI）。",
     "link.advanced": "進階：Bot 也可以根據你的 context 來精煉分類帽結果（職業/技能敘事）。",
+    "invite.title": "邀請朋友",
+    "invite.help": "分享連結給朋友：點開就能進小鎮（不用登入）。",
+    "invite.shareBtn": "分享",
+    "invite.copyBtn": "複製文字",
     "onboarding.title": "歡迎來到 Clawtown",
     "onboarding.text": "先選語言（右上）→ 用 WASD/方向鍵（或手機左下搖桿）走動 → 按 4 攻擊，先打倒第一隻史萊姆！想要全自動：去「連結 Bot」把 Join Token 貼給 Moltbot/Clawbot 解鎖 H-Mode。",
     "onboarding.start": "進入小鎮",
@@ -551,6 +559,10 @@ const I18N = {
     "link.dockerGap": "Local dev only: Docker bots cannot reach localhost; use the host.docker.internal token.",
     "link.skillHelp": "Best: tell your bot to read https://clawtown.io/skill.md (no CLI required).",
     "link.advanced": "Advanced: the bot can refine Hat results using your context.",
+    "invite.title": "Invite a friend",
+    "invite.help": "Share this link with friends. They can enter town instantly (no login).",
+    "invite.shareBtn": "Share",
+    "invite.copyBtn": "Copy text",
     "onboarding.title": "Welcome to Clawtown",
     "onboarding.text": "Pick a language (top-right) → Move with WASD/Arrows (or the mobile joystick) → Press 4 to defeat your first slime! Want autopilot? Go to “Link Bot”, paste the Join Token into Moltbot/Clawbot, and switch to H-Mode.",
     "onboarding.start": "Enter town",
@@ -652,6 +664,12 @@ function applyI18n() {
       const extra = (isProbablyIOS && isProbablyIOS() && !isStandaloneMode()) ? `\n${t('onboarding.pwaTip')}` : '';
       foot.textContent = `${base}${extra}`;
     }
+  } catch {
+    // ignore
+  }
+
+  try {
+    if (inviteLinkEl) inviteLinkEl.textContent = canonicalShareUrl();
   } catch {
     // ignore
   }
@@ -797,6 +815,71 @@ function flashStatus(text, ms = 1400) {
     // Prefer the canonical connected label after the toast.
     statusEl.textContent = t('status.connected') || prev || '';
   }, ms);
+}
+
+function canonicalShareUrl() {
+  try {
+    const host = String(location.hostname || "");
+    if (host.endsWith("clawtown.io") || host.endsWith("clawtown.fly.dev")) return "https://clawtown.io";
+    return String(location.origin || "").replace(/\/+$/, "");
+  } catch {
+    return "https://clawtown.io";
+  }
+}
+
+function shareCopyText({ kind = "invite" } = {}) {
+  const url = canonicalShareUrl();
+  if (kind === "first_kill") {
+    return lang === "en"
+      ? `I just defeated my first slime in Clawtown. Join me: ${url}`
+      : `我剛在 Clawtown 打倒第一隻史萊姆：${url}`;
+  }
+  return lang === "en" ? `Join me in Clawtown: ${url}` : `來 Clawtown 一起玩：${url}`;
+}
+
+async function copyTextToClipboard(text) {
+  const s = String(text || "");
+  if (!s) return false;
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(s);
+      return true;
+    }
+  } catch {
+    // fallback below
+  }
+  try {
+    const ta = document.createElement("textarea");
+    ta.value = s;
+    ta.setAttribute("readonly", "true");
+    ta.style.position = "fixed";
+    ta.style.left = "-9999px";
+    ta.style.top = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand && document.execCommand("copy");
+    ta.remove();
+    return Boolean(ok);
+  } catch {
+    return false;
+  }
+}
+
+async function shareClawtown({ kind = "invite" } = {}) {
+  const url = canonicalShareUrl();
+  const text = shareCopyText({ kind });
+  try {
+    if (navigator.share) {
+      await navigator.share({ title: "Clawtown", text, url });
+      flashStatus(lang === "en" ? "Shared!" : "已分享！", 1200);
+      return true;
+    }
+  } catch {
+    // user cancelled or unsupported -> fall back to copy
+  }
+  const ok = await copyTextToClipboard(text);
+  flashStatus(ok ? (lang === "en" ? "Link copied" : "已複製") : (lang === "en" ? "Copy failed" : "複製失敗"), 1400);
+  return ok;
 }
 
 function ensureManualFromUserInput() {
@@ -1490,68 +1573,6 @@ function createCoach() {
     bubble.style.top = `${top}px`;
   }
 
-  function canonicalShareUrl() {
-    try {
-      const host = String(location.hostname || '');
-      if (host.endsWith('clawtown.io') || host.endsWith('clawtown.fly.dev')) return 'https://clawtown.io';
-      return String(location.origin || '').replace(/\/+$/, '');
-    } catch {
-      return 'https://clawtown.io';
-    }
-  }
-
-  function shareCopyText() {
-    const url = canonicalShareUrl();
-    return lang === 'en'
-      ? `My AI pet just started life in Clawtown. Join me: ${url}`
-      : `我剛在 Clawtown 開始養 AI 寵物：${url}`;
-  }
-
-  async function copyTextToClipboard(text) {
-    const s = String(text || '');
-    if (!s) return false;
-    try {
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        await navigator.clipboard.writeText(s);
-        return true;
-      }
-    } catch {
-      // fallback below
-    }
-    try {
-      const ta = document.createElement('textarea');
-      ta.value = s;
-      ta.setAttribute('readonly', 'true');
-      ta.style.position = 'fixed';
-      ta.style.left = '-9999px';
-      ta.style.top = '0';
-      document.body.appendChild(ta);
-      ta.select();
-      const ok = document.execCommand && document.execCommand('copy');
-      ta.remove();
-      return Boolean(ok);
-    } catch {
-      return false;
-    }
-  }
-
-  async function shareClawtown() {
-    const url = canonicalShareUrl();
-    const text = shareCopyText();
-    try {
-      if (navigator.share) {
-        await navigator.share({ title: 'Clawtown', text, url });
-        flashStatus(lang === 'en' ? 'Shared!' : '已分享！', 1200);
-        return true;
-      }
-    } catch {
-      // user cancelled or unsupported -> fall back to copy
-    }
-    const ok = await copyTextToClipboard(text);
-    flashStatus(ok ? (lang === 'en' ? 'Link copied' : '已複製連結') : (lang === 'en' ? 'Copy failed' : '複製失敗'), 1400);
-    return ok;
-  }
-
   function showToastWithActions({ text, primary, secondary }) {
     if (!text) return;
     clearHighlight();
@@ -1674,7 +1695,7 @@ function createCoach() {
           primary: {
             label: t('coach.share'),
             onClick: async () => {
-              await shareClawtown();
+              await shareClawtown({ kind: 'first_kill' });
               hide();
               setStep('end');
             },
@@ -1697,7 +1718,7 @@ function createCoach() {
         // Keep it visible while the timeout is pending.
         showToastWithActions({
           text: t('coach.done'),
-          primary: { label: t('coach.share'), onClick: async () => { await shareClawtown(); hide(); setStep('end'); } },
+          primary: { label: t('coach.share'), onClick: async () => { await shareClawtown({ kind: 'first_kill' }); hide(); setStep('end'); } },
           secondary: { label: t('coach.dismiss'), onClick: () => { hide(); setStep('end'); } },
         });
       }
@@ -2635,6 +2656,15 @@ copyJoinTokenBtn?.addEventListener("click", () => copyText(joinTokenEl?.value));
 copySandboxJoinTokenBtn?.addEventListener("click", () => copyText(sandboxJoinTokenEl?.value));
 
 copyBotPromptBtn?.addEventListener("click", () => copyText(botPromptEl?.value));
+
+inviteShareBtn?.addEventListener("click", async (e) => {
+  e.preventDefault();
+  await shareClawtown({ kind: "invite" });
+});
+inviteCopyBtn?.addEventListener("click", async (e) => {
+  e.preventDefault();
+  await copyTextToClipboard(shareCopyText({ kind: "invite" }));
+});
 
 boardSend.addEventListener("click", () => {
   const content = String(boardInput.value || "").trim();
