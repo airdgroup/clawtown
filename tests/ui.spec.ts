@@ -53,6 +53,26 @@ test('UI baseline looks polished', async ({ page }) => {
   });
 });
 
+test('Onboarding: iOS PWA tip is shown (Add to Home Screen)', async ({ browser }) => {
+  const ctx = await browser.newContext({
+    viewport: { width: 390, height: 844 },
+    isMobile: true,
+    hasTouch: true,
+    userAgent:
+      'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
+  });
+  const page = await ctx.newPage();
+
+  await resetWorld(page);
+  await page.goto('/');
+  await waitForFonts(page);
+
+  const foot = page.locator('#onboarding .modal-foot');
+  await expect(foot).toContainText('加入主畫面');
+
+  await ctx.close();
+});
+
 test('Minimap: renders players/monsters dots (not blank)', async ({ page }) => {
   await resetWorld(page);
   await page.goto('/');

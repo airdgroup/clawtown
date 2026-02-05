@@ -387,6 +387,7 @@ const I18N = {
     "onboarding.start": "進入小鎮",
     "onboarding.goHat": "先連結 Bot",
     "onboarding.foot": "小技巧：本機開兩個分頁就能 demo 多人互動。",
+    "onboarding.pwaTip": "iOS 小技巧：點分享 →「加入主畫面」可全螢幕（比較不會被 Safari tabs 擋住）。",
     "status.connecting": "連線中...",
     "status.connected": "已連線",
     "status.reconnecting": "已斷線（重連中...）",
@@ -555,6 +556,7 @@ const I18N = {
     "onboarding.start": "Enter town",
     "onboarding.goHat": "Link Bot first",
     "onboarding.foot": "Tip: open two tabs to demo multiplayer.",
+    "onboarding.pwaTip": "iOS tip: Share → Add to Home Screen for fullscreen (hides Safari tabs).",
     "status.connecting": "Connecting...",
     "status.connected": "Connected",
     "status.reconnecting": "Disconnected (reconnecting...)",
@@ -641,6 +643,18 @@ function applyI18n() {
   if (slot2NameEl) slot2NameEl.textContent = t('action.slot2');
   if (slot3NameEl) slot3NameEl.textContent = t('action.slot3');
   if (botTitleEl) botTitleEl.textContent = t('bot.title');
+
+  // iOS Safari: suggest PWA install for fullscreen (tabs can be hard to hide in landscape).
+  try {
+    const foot = document.querySelector('#onboarding .modal-foot');
+    if (foot) {
+      const base = t('onboarding.foot');
+      const extra = (isProbablyIOS && isProbablyIOS() && !isStandaloneMode()) ? `\n${t('onboarding.pwaTip')}` : '';
+      foot.textContent = `${base}${extra}`;
+    }
+  } catch {
+    // ignore
+  }
 
   renderHeader();
   renderAchievements();
@@ -925,6 +939,17 @@ function isProbablyIOS() {
     if (/iPad|iPhone|iPod/i.test(ua)) return true;
     // iPadOS 13+ reports as Mac; detect via touch points.
     return navigator.platform === "MacIntel" && (navigator.maxTouchPoints || 0) > 1;
+  } catch {
+    return false;
+  }
+}
+
+function isStandaloneMode() {
+  try {
+    // iOS Safari legacy flag + modern display-mode.
+    // @ts-ignore
+    if (navigator.standalone === true) return true;
+    return Boolean(window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
   } catch {
     return false;
   }
