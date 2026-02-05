@@ -865,12 +865,13 @@ test('Coach: first kill celebration shows a single toast (no flashing)', async (
 
   // Wait until the coach toast appears (done step).
   await expect(bubble).toContainText('First slime down');
+  await expect(bubble).toContainText('Share');
 
   // No flashing highlight left behind.
   await expect(page.locator('.ct-coach-highlight')).toHaveCount(0);
 
-  // It should auto-dismiss and not re-appear.
-  await page.waitForTimeout(3400);
+  // It should auto-dismiss and not re-appear (long enough for a human to tap Share).
+  await page.waitForTimeout(7600);
   await expect(bubble).toBeHidden();
   await page.waitForTimeout(800);
   await expect(bubble).toBeHidden();

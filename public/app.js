@@ -425,6 +425,8 @@ const I18N = {
     "coach.loot": "看到掉落了嗎？靠近會自動撿起。去「背包」看看。",
     "coach.equip": "把武器裝上，ATK 會立刻變強。",
     "coach.done": "恭喜！你打倒第一隻史萊姆。接下來：打怪 → 撿裝 → 變強。",
+    "coach.share": "分享",
+    "coach.dismiss": "稍後",
   },
   en: {
     tagline: "A human + CloudBot town MMO",
@@ -591,6 +593,8 @@ const I18N = {
     "coach.loot": "See drops? Walk near them to auto-pickup. Open Inventory.",
     "coach.equip": "Equip a weapon to boost ATK immediately.",
     "coach.done": "Nice! First slime down. Next: kill → loot → equip → stronger.",
+    "coach.share": "Share",
+    "coach.dismiss": "Later",
   },
 };
 
@@ -1350,6 +1354,7 @@ function createCoach() {
 
     bubble.textContent = text;
     bubble.style.display = 'block';
+    bubble.style.transform = 'none';
 
     const r = targetEl.getBoundingClientRect();
     const pad = 12;
@@ -1378,7 +1383,9 @@ function createCoach() {
     save();
   }
 
-  bubble.addEventListener('click', () => {
+  bubble.addEventListener('click', (e) => {
+    const t = e && e.target;
+    if (t && t.closest && t.closest('button')) return;
     st.disabled = true;
     save();
     hide();
@@ -1458,6 +1465,116 @@ function createCoach() {
     bubble.style.top = `${top}px`;
   }
 
+  function canonicalShareUrl() {
+    try {
+      const host = String(location.hostname || '');
+      if (host.endsWith('clawtown.io') || host.endsWith('clawtown.fly.dev')) return 'https://clawtown.io';
+      return String(location.origin || '').replace(/\/+$/, '');
+    } catch {
+      return 'https://clawtown.io';
+    }
+  }
+
+  function shareCopyText() {
+    const url = canonicalShareUrl();
+    return lang === 'en'
+      ? `My AI pet just started life in Clawtown. Join me: ${url}`
+      : `我剛在 Clawtown 開始養 AI 寵物：${url}`;
+  }
+
+  async function copyTextToClipboard(text) {
+    const s = String(text || '');
+    if (!s) return false;
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(s);
+        return true;
+      }
+    } catch {
+      // fallback below
+    }
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = s;
+      ta.setAttribute('readonly', 'true');
+      ta.style.position = 'fixed';
+      ta.style.left = '-9999px';
+      ta.style.top = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      const ok = document.execCommand && document.execCommand('copy');
+      ta.remove();
+      return Boolean(ok);
+    } catch {
+      return false;
+    }
+  }
+
+  async function shareClawtown() {
+    const url = canonicalShareUrl();
+    const text = shareCopyText();
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: 'Clawtown', text, url });
+        flashStatus(lang === 'en' ? 'Shared!' : '已分享！', 1200);
+        return true;
+      }
+    } catch {
+      // user cancelled or unsupported -> fall back to copy
+    }
+    const ok = await copyTextToClipboard(text);
+    flashStatus(ok ? (lang === 'en' ? 'Link copied' : '已複製連結') : (lang === 'en' ? 'Copy failed' : '複製失敗'), 1400);
+    return ok;
+  }
+
+  function showToastWithActions({ text, primary, secondary }) {
+    if (!text) return;
+    clearHighlight();
+
+    while (bubble.firstChild) bubble.removeChild(bubble.firstChild);
+
+    const msg = document.createElement('div');
+    msg.className = 'ct-coach-toast-text';
+    msg.textContent = text;
+    bubble.appendChild(msg);
+
+    const actions = document.createElement('div');
+    actions.className = 'ct-coach-actions';
+
+    if (secondary && secondary.label) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'ct-coach-btn';
+      b.textContent = secondary.label;
+      b.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        try { secondary.onClick && secondary.onClick(); } catch { /* ignore */ }
+      });
+      actions.appendChild(b);
+    }
+    if (primary && primary.label) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'ct-coach-btn ct-primary';
+      b.textContent = primary.label;
+      b.addEventListener('click', async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        try { await (primary.onClick && primary.onClick()); } catch { /* ignore */ }
+      });
+      actions.appendChild(b);
+    }
+
+    if (actions.childNodes.length) bubble.appendChild(actions);
+
+    bubble.style.display = 'block';
+    bubble.style.left = '50%';
+    bubble.style.transform = 'translateX(-50%)';
+    const top = isMobileLayout() ? 76 : 86;
+    bubble.style.top = `${top}px`;
+  }
+
   function onState(p, _state, fx) {
     if (!canShow()) return hide();
     if (!p) return hide();
@@ -1527,16 +1644,37 @@ function createCoach() {
       if (!st.doneShownAt) {
         st.doneShownAt = Date.now();
         save();
-        showToast(t('coach.done'));
+        showToastWithActions({
+          text: t('coach.done'),
+          primary: {
+            label: t('coach.share'),
+            onClick: async () => {
+              await shareClawtown();
+              hide();
+              setStep('end');
+            },
+          },
+          secondary: {
+            label: t('coach.dismiss'),
+            onClick: () => {
+              hide();
+              setStep('end');
+            },
+          },
+        });
         setTimeout(() => {
           if (!st.disabled) {
             hide();
             setStep('end');
           }
-        }, 2600);
+        }, 6500);
       } else {
         // Keep it visible while the timeout is pending.
-        showToast(t('coach.done'));
+        showToastWithActions({
+          text: t('coach.done'),
+          primary: { label: t('coach.share'), onClick: async () => { await shareClawtown(); hide(); setStep('end'); } },
+          secondary: { label: t('coach.dismiss'), onClick: () => { hide(); setStep('end'); } },
+        });
       }
       return;
     }
