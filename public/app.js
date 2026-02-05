@@ -997,6 +997,8 @@ function setViewportVars() {
   try {
     const vh = Math.max(1, window.innerHeight * 0.01);
     document.documentElement.style.setProperty('--ct-vh', `${vh}px`);
+    const headerH = Math.max(0, Number(document.querySelector("header")?.offsetHeight || 0));
+    document.documentElement.style.setProperty("--ct-header-h", `${headerH}px`);
   } catch {
     // ignore
   }

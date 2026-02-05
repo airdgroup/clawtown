@@ -620,11 +620,17 @@ main {
 
   #app {
     max-width: none;
+    /* Keep the game pinned while the page scrolls a few px to let iOS Safari collapse its chrome. */
+    position: fixed;
+    inset: 0;
+    margin: 0;
   }
 
   header {
-    position: sticky;
+    position: fixed;
     top: 0;
+    left: 0;
+    right: 0;
     z-index: 80;
     padding: 10px 12px 8px;
     backdrop-filter: blur(10px);
@@ -652,6 +658,9 @@ main {
   main {
     display: block;
     padding: 0;
+    padding-top: var(--ct-header-h, 64px);
+    height: calc(var(--ct-vh, 1vh) * 100 - var(--ct-header-h, 64px));
+    overflow: hidden;
   }
 
   .stage {
@@ -663,6 +672,7 @@ main {
     overflow: hidden;
     /* give the fixed controls a safe “resting” layer */
     padding-bottom: calc(var(--drawer-collapsed) + 148px + env(safe-area-inset-bottom));
+    height: 100%;
   }
 
   .minimap {
@@ -926,7 +936,7 @@ main {
 
   /* A tiny scroll target to let Safari hide its top/bottom chrome. */
   #scrollShim {
-    height: 2px;
+    height: 120px;
   }
 }
 
@@ -944,15 +954,28 @@ main {
     min-height: calc(var(--ct-vh, 1vh) * 100);
   }
 
+  #app {
+    /* Keep the game pinned while the page scrolls a few px to let iOS Safari collapse its chrome. */
+    position: fixed;
+    inset: 0;
+    margin: 0;
+    max-width: none;
+  }
+
   header {
-    position: sticky;
+    position: fixed;
     top: 0;
+    left: 0;
+    right: 0;
     z-index: 80;
   }
 
   main {
     display: block;
     padding: 0;
+    padding-top: var(--ct-header-h, 64px);
+    height: calc(var(--ct-vh, 1vh) * 100 - var(--ct-header-h, 64px));
+    overflow: hidden;
   }
 
   .stage {
@@ -962,6 +985,7 @@ main {
     box-shadow: none;
     background: transparent;
     overflow: hidden;
+    height: 100%;
   }
 
   #game {
