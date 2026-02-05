@@ -3695,6 +3695,7 @@ function connect() {
   const qs = new URLSearchParams({ playerId, name: myName });
   ws = new WebSocket(`${location.origin.replace(/^http/, "ws")}/ws?${qs.toString()}`);
   let lastStateAtMs = 0;
+  let lastWsStateAtMs = 0;
   let pollTimer = null;
 
   ws.addEventListener("open", () => {
@@ -3715,7 +3716,7 @@ function connect() {
     setTimeout(connect, 500);
   });
 
-  function acceptState(next) {
+  function acceptState(next, { source = "ws" } = {}) {
     // Defensive: never allow a malformed state payload to blank the map.
     // (We've observed mobile browsers occasionally ending up with "state: undefined" UI.)
     if (!next || typeof next !== "object") return false;
@@ -3724,6 +3725,7 @@ function connect() {
     state = next;
     lastGoodState = next;
     lastStateAtMs = Date.now();
+    if (source === "ws") lastWsStateAtMs = lastStateAtMs;
     window.__ct = window.__ct || {};
     window.__ct.state = state;
     return true;
@@ -3734,7 +3736,7 @@ function connect() {
       const res = await fetch("/api/state", { cache: "no-store" });
       const data = await res.json().catch(() => null);
       if (!data || !data.ok || !data.state) return false;
-      if (!acceptState(data.state)) return false;
+      if (!acceptState(data.state, { source: "poll" })) return false;
       // Minimal UI refresh so the map never stays blank.
       if (state?.players) {
         you = state.players.find((p) => p.id === playerId) || you;
@@ -3753,7 +3755,7 @@ function connect() {
     if (pollTimer) return;
     pollTimer = setInterval(async () => {
       // If WS resumed, stop polling.
-      if (ws && ws.readyState === WebSocket.OPEN && lastStateAtMs && Date.now() - lastStateAtMs < 1200) {
+      if (ws && ws.readyState === WebSocket.OPEN && lastWsStateAtMs && Date.now() - lastWsStateAtMs < 1200) {
         stopPolling();
         statusEl.textContent = t('status.connected');
         return;
@@ -3778,7 +3780,7 @@ function connect() {
     try {
       if (msg.type === "hello") {
         you = msg.you;
-        if (!acceptState(msg.state)) return;
+        if (!acceptState(msg.state, { source: "ws" })) return;
       stopPolling();
       window.__ct = window.__ct || {};
       window.__ct.you = you;
@@ -3830,7 +3832,7 @@ function connect() {
       return;
     }
     if (msg.type === "state") {
-      if (!acceptState(msg.state)) return;
+      if (!acceptState(msg.state, { source: "ws" })) return;
       stopPolling();
       if (state?.players) {
         you = state.players.find((p) => p.id === playerId) || you;
