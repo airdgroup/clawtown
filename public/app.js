@@ -8,6 +8,7 @@ const slot3NameEl = document.getElementById("slot3Name");
 const botTitleEl = document.getElementById("botTitle");
 const langZhBtn = document.getElementById("langZh");
 const langEnBtn = document.getElementById("langEn");
+const headerInviteBtn = document.getElementById("headerInvite");
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
 const stageEl = document.getElementById("stage");
@@ -266,6 +267,7 @@ let hoverTips = null;
 const I18N = {
   zh: {
     tagline: "一個人類 + CloudBot 的小鎮 MMO",
+    "header.invite": "邀請朋友",
     "hud.help": "WASD/方向鍵移動・Enter 聊天・滑鼠點地面設定目標",
     "action.slot1": "技能1",
     "action.slot2": "揮手",
@@ -439,6 +441,7 @@ const I18N = {
   },
   en: {
     tagline: "A human + CloudBot town MMO",
+    "header.invite": "Invite",
     "hud.help": "Move: WASD/Arrows · Chat: Enter · Set goal: click ground",
     "action.slot1": "Skill 1",
     "action.slot2": "Wave",
@@ -720,6 +723,19 @@ let lastGoodState = null;
 let you;
 let recentFx = [];
 let lastMoveSentAt = 0;
+let urlPartyJoinCode = (() => {
+  try {
+    const raw = new URLSearchParams(location.search).get("party");
+    const code = String(raw || "").trim().toUpperCase();
+    return /^[A-Z2-9]{6}$/.test(code) ? code : "";
+  } catch {
+    return "";
+  }
+})();
+let urlPartyJoinRequested = false;
+
+let partyInvite = { joinCode: "", expiresAt: 0 };
+let partyInviteWaiter = null; // { resolve, t }
 const view = {
   camX: 0,
   camY: 0,
@@ -843,6 +859,96 @@ function shareCopyText({ kind = "invite" } = {}) {
       : `我剛在 Clawtown 打倒第一隻史萊姆：${url}`;
   }
   return lang === "en" ? `Join me in Clawtown: ${url}` : `來 Clawtown 一起玩：${url}`;
+}
+
+function partyInviteUrlFromCode(code) {
+  const c = String(code || "").trim().toUpperCase();
+  if (!/^[A-Z2-9]{6}$/.test(c)) return canonicalShareUrl();
+  return `${canonicalShareUrl()}/?party=${encodeURIComponent(c)}`;
+}
+
+async function ensurePartyInviteCode({ force = false } = {}) {
+  const now = Date.now();
+  if (!force && partyInvite.joinCode && partyInvite.expiresAt && now < partyInvite.expiresAt - 5000) {
+    return partyInvite.joinCode;
+  }
+  if (!ws || ws.readyState !== WebSocket.OPEN) return "";
+  if (!you) return "";
+
+  if (partyInviteWaiter) {
+    try {
+      return await new Promise((resolve) => {
+        const w = partyInviteWaiter;
+        if (!w) return resolve("");
+        const prevResolve = w.resolve;
+        w.resolve = (v) => {
+          try { prevResolve(v); } catch { /* ignore */ }
+          resolve(v);
+        };
+      });
+    } catch {
+      return "";
+    }
+  }
+
+  const p = new Promise((resolve) => {
+    const t = setTimeout(() => {
+      partyInviteWaiter = null;
+      resolve("");
+    }, 2000);
+    partyInviteWaiter = { resolve, t };
+  });
+  try {
+    ws.send(JSON.stringify({ type: "party_invite" }));
+  } catch {
+    const w = partyInviteWaiter;
+    if (w && w.t) clearTimeout(w.t);
+    partyInviteWaiter = null;
+    return "";
+  }
+  const code = await p;
+  return String(code || "");
+}
+
+async function sharePartyInvite() {
+  const code = await ensurePartyInviteCode({ force: false });
+  const url = partyInviteUrlFromCode(code);
+  const text = lang === "en" ? `Join my party in Clawtown: ${url}` : `來 Clawtown 跟我同隊：${url}`;
+  try {
+    if (navigator.share) {
+      await navigator.share({ title: "Clawtown", text, url });
+      flashStatus(lang === "en" ? "Shared!" : "已分享！", 1200);
+      if (inviteLinkEl) inviteLinkEl.textContent = url;
+      return true;
+    }
+  } catch {
+    // user cancelled or unsupported -> fall back to copy
+  }
+  const ok = await copyTextToClipboard(text);
+  flashStatus(ok ? (lang === "en" ? "Link copied" : "已複製") : (lang === "en" ? "Copy failed" : "複製失敗"), 1400);
+  if (ok && inviteLinkEl) inviteLinkEl.textContent = url;
+  return ok;
+}
+
+function maybeAutoJoinPartyFromUrl() {
+  if (!urlPartyJoinCode) return;
+  if (urlPartyJoinRequested) return;
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  urlPartyJoinRequested = true;
+  try {
+    ws.send(JSON.stringify({ type: "party_join", joinCode: urlPartyJoinCode }));
+    flashStatus(lang === "en" ? "Joining party…" : "正在加入隊伍…", 1600);
+  } catch {
+    // ignore
+  }
+  try {
+    const u = new URL(location.href);
+    u.searchParams.delete("party");
+    const q = u.searchParams.toString();
+    history.replaceState({}, "", `${u.pathname}${q ? `?${q}` : ""}${u.hash || ""}`);
+  } catch {
+    // ignore
+  }
 }
 
 async function copyTextToClipboard(text) {
@@ -2692,13 +2798,23 @@ copySandboxJoinTokenBtn?.addEventListener("click", () => copyText(sandboxJoinTok
 
 copyBotPromptBtn?.addEventListener("click", () => copyText(botPromptEl?.value));
 
+headerInviteBtn?.addEventListener("click", async (e) => {
+  e.preventDefault();
+  await sharePartyInvite();
+});
+
 inviteShareBtn?.addEventListener("click", async (e) => {
   e.preventDefault();
-  await shareClawtown({ kind: "invite" });
+  await sharePartyInvite();
 });
 inviteCopyBtn?.addEventListener("click", async (e) => {
   e.preventDefault();
-  await copyTextToClipboard(shareCopyText({ kind: "invite" }));
+  const code = await ensurePartyInviteCode({ force: false });
+  const url = partyInviteUrlFromCode(code);
+  const text = lang === "en" ? `Join my party in Clawtown: ${url}` : `來 Clawtown 跟我同隊：${url}`;
+  const ok = await copyTextToClipboard(text);
+  flashStatus(ok ? (lang === "en" ? "Link copied" : "已複製") : (lang === "en" ? "Copy failed" : "複製失敗"), 1400);
+  if (ok && inviteLinkEl) inviteLinkEl.textContent = url;
 });
 
 boardSend.addEventListener("click", () => {
@@ -3953,6 +4069,12 @@ function connect() {
   statusEl.textContent = t('status.connecting');
   const qs = new URLSearchParams({ playerId, name: myName });
   ws = new WebSocket(`${location.origin.replace(/^http/, "ws")}/ws?${qs.toString()}`);
+  try {
+    window.__ct = window.__ct || {};
+    window.__ct.ws = ws;
+  } catch {
+    // ignore
+  }
   let lastStateAtMs = 0;
   let lastWsStateAtMs = 0;
   let pollTimer = null;
@@ -4052,6 +4174,7 @@ function connect() {
       window.__ct.recentFx = recentFx;
 
       coach?.onHello?.(you);
+      maybeAutoJoinPartyFromUrl();
 
       renderHeader();
       renderFeed(boardEl, state.board || [], "board");
@@ -4171,7 +4294,42 @@ function connect() {
 
     if (msg.type === "party_code") {
       if (partyCodeInput) partyCodeInput.value = String(msg.joinCode || "");
-      statusEl.textContent = "隊伍：已產生邀請碼";
+      try {
+        const code = String(msg.joinCode || "").trim().toUpperCase();
+        const exp = Math.max(0, Math.floor(Number(msg.expiresAt || 0) || 0));
+        if (code) {
+          partyInvite = { joinCode: code, expiresAt: exp || (Date.now() + 55 * 60_000) };
+          if (inviteLinkEl) inviteLinkEl.textContent = partyInviteUrlFromCode(code);
+        }
+      } catch {
+        // ignore
+      }
+      statusEl.textContent = lang === "en" ? "Party: invite code generated" : "隊伍：已產生邀請碼";
+      return;
+    }
+
+    if (msg.type === "party_invite") {
+      const code = String(msg.joinCode || "").trim().toUpperCase();
+      const exp = Math.max(0, Math.floor(Number(msg.expiresAt || 0) || 0));
+      if (code) {
+        partyInvite = { joinCode: code, expiresAt: exp || (Date.now() + 55 * 60_000) };
+        if (inviteLinkEl) inviteLinkEl.textContent = partyInviteUrlFromCode(code);
+        if (partyCodeInput) partyCodeInput.value = code;
+      }
+      try {
+        const w = partyInviteWaiter;
+        if (w && w.t) clearTimeout(w.t);
+        partyInviteWaiter = null;
+        if (w && w.resolve) w.resolve(code || "");
+      } catch {
+        // ignore
+      }
+      statusEl.textContent = lang === "en" ? "Invite link ready" : "邀請連結已準備";
+      return;
+    }
+
+    if (msg.type === "party_joined") {
+      statusEl.textContent = lang === "en" ? "Joined party" : "已加入隊伍";
       return;
     }
 

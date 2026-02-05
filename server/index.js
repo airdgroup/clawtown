@@ -551,7 +551,8 @@ function createPartyJoinCode(partyId) {
     if (v.partyId === party.id) partyJoinCodes.delete(code);
   }
   const code = randomCode(6);
-  partyJoinCodes.set(code, { partyId: party.id, expiresAt: nowMs() + 5 * 60 * 1000 });
+  // Sharing links should be forgiving: invite codes last long enough for casual “send → open later”.
+  partyJoinCodes.set(code, { partyId: party.id, expiresAt: nowMs() + 60 * 60 * 1000 });
   return code;
 }
 
@@ -2852,12 +2853,27 @@ wss.on("connection", (ws, req) => {
         return;
       }
       const party = getParty(player.partyId);
-      if (!party || party.leaderId !== player.id) {
-        send(ws, { type: "party_error", error: "隊伍：只有隊長可以產生邀請碼" });
+      if (!party) {
+        send(ws, { type: "party_error", error: "隊伍：隊伍不存在" });
         return;
       }
       const joinCode = createPartyJoinCode(player.partyId);
-      send(ws, { type: "party_code", joinCode });
+      const rec = joinCode ? partyJoinCodes.get(joinCode) : null;
+      send(ws, { type: "party_code", joinCode, expiresAt: rec ? rec.expiresAt : null });
+      return;
+    }
+
+    if (type === "party_invite") {
+      // Viral UX: one click to generate an invite link that drops friends into the same party (and near you).
+      if (!player.partyId) {
+        const partyId = createParty(player.id);
+        player.partyId = partyId;
+        markDirty(player);
+        pushChat({ kind: "system", text: `${player.name} formed a party.`, from: { id: "system", name: "Town" } });
+      }
+      const joinCode = createPartyJoinCode(player.partyId);
+      const rec = joinCode ? partyJoinCodes.get(joinCode) : null;
+      send(ws, { type: "party_invite", joinCode, expiresAt: rec ? rec.expiresAt : null, partyId: player.partyId });
       return;
     }
 
@@ -2879,8 +2895,22 @@ wss.on("connection", (ws, req) => {
         return;
       }
       player.partyId = rec.partyId;
+      // Spawn near the party leader so “invite a friend” immediately feels social.
+      try {
+        const party = getParty(rec.partyId);
+        const leader = party && party.leaderId ? players.get(party.leaderId) : null;
+        if (leader) {
+          const j = () => (Math.random() - 0.5) * 140;
+          player.x = clamp(leader.x + j(), 0, (WORLD.width - 1) * WORLD.tileSize);
+          player.y = clamp(leader.y + j(), 0, (WORLD.height - 1) * WORLD.tileSize);
+          pushFx({ type: "mark", x: player.x, y: player.y, byPlayerId: player.id, payload: { party: true } });
+        }
+      } catch {
+        // ignore
+      }
       markDirty(player);
       pushChat({ kind: "system", text: `${player.name} joined a party.`, from: { id: "system", name: "Town" } });
+      send(ws, { type: "party_joined", partyId: rec.partyId });
       return;
     }
 

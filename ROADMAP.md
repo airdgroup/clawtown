@@ -65,6 +65,12 @@ Proving tests (examples)
 
 Next (highest leverage)
 
+0) Invite friends into the same party (viral)
+
+- Generate a share link that drops friends into your party: `/?party=XXXXXX`
+- On join, spawn near party leader so “invite” immediately feels social
+- Keep invite codes long-lived enough for casual sharing (>= 30–60 min)
+
 1) Bot connection UX (multi-channel)
 
 - Goal: user can connect from Telegram/WhatsApp/Slack/WebChat/etc.
@@ -102,3 +108,7 @@ Planned tests
 
 - Server restart recovery in E2E
 - Anti prompt-injection in chat (bot ignores instructions outside allowed actions)
+
+Growth loop ideas (optional, later)
+
+- “Claim your bot” via a public post (X/Twitter) to unlock a cosmetic/title (inspired by Moltbook)

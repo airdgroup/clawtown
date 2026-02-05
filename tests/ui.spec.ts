@@ -1718,6 +1718,65 @@ test('Two players can chat (local multiplayer)', async ({ browser }) => {
   await ctxB.close();
 });
 
+test('Invite: party link auto-joins and spawns near the host', async ({ browser }) => {
+  const ctxA = await browser.newContext({ viewport: { width: 1200, height: 780 } });
+  const ctxB = await browser.newContext({ viewport: { width: 1200, height: 780 } });
+  const a = await ctxA.newPage();
+  const b = await ctxB.newPage();
+
+  await resetWorld(a);
+
+  await a.goto('/');
+  await waitForFonts(a);
+  await closeOnboarding(a);
+
+  // Generate a party invite via WS (no share-sheet dependency).
+  await a.locator('.ui-tab[data-tab="link"]').click();
+  await a.waitForFunction(() => Boolean((window as any).__ct?.ws && (window as any).__ct.ws.readyState === 1));
+  await a.evaluate(() => (window as any).__ct.ws.send(JSON.stringify({ type: 'party_invite' })));
+
+  await expect(a.locator('#inviteLink')).toContainText('party=');
+  const inviteUrl = await a.locator('#inviteLink').textContent();
+  const m = String(inviteUrl || '').match(/[?&]party=([A-Z2-9]{6})/);
+  expect(m && m[1]).toBeTruthy();
+  const code = String(m[1]);
+
+  // Friend opens the link: should auto-join the same party.
+  await b.goto(`/?party=${code}`);
+  await waitForFonts(b);
+  await closeOnboarding(b);
+
+  // Wait until the party shows 2 members in the shared world snapshot.
+  await b.waitForFunction(() => {
+    const st = (window as any).__ct?.state;
+    return st && Array.isArray(st.parties) && st.parties.some((p: any) => Array.isArray(p.members) && p.members.length === 2);
+  }, null, { timeout: 10_000 });
+
+  // Spawn near: two players should be close-ish on the map.
+  const ids = await Promise.all([
+    a.evaluate(() => JSON.parse(localStorage.getItem('clawtown.player') || 'null')?.playerId || null),
+    b.evaluate(() => JSON.parse(localStorage.getItem('clawtown.player') || 'null')?.playerId || null),
+  ]);
+  expect(ids[0]).toBeTruthy();
+  expect(ids[1]).toBeTruthy();
+
+  const dist2 = await b.evaluate(([aId, bId]) => {
+    const st = (window as any).__ct?.state;
+    if (!st || !Array.isArray(st.players)) return null;
+    const pa = st.players.find((p: any) => p && p.id === aId);
+    const pb = st.players.find((p: any) => p && p.id === bId);
+    if (!pa || !pb) return null;
+    const dx = (pa.x || 0) - (pb.x || 0);
+    const dy = (pa.y || 0) - (pb.y || 0);
+    return dx * dx + dy * dy;
+  }, ids as any);
+  expect(dist2).toBeTruthy();
+  expect(dist2 as number).toBeLessThan(260 * 260);
+
+  await ctxA.close();
+  await ctxB.close();
+});
+
 test('Party: create/join and share XP on elite kill', async ({ browser }) => {
   const ctxA = await browser.newContext({ viewport: { width: 1200, height: 780 } });
   const ctxB = await browser.newContext({ viewport: { width: 1200, height: 780 } });
