@@ -591,9 +591,7 @@ test('Invite: link section shows canonical URL', async ({ page }) => {
 
   await page.locator('.ui-tab[data-tab="link"]').click();
   await expect(page.locator('#inviteLink')).toBeVisible();
-
-  const origin = await page.evaluate(() => location.origin);
-  await expect(page.locator('#inviteLink')).toHaveText(origin);
+  await expect(page.locator('#inviteLink')).toHaveText('https://clawtown.io');
 });
 
 test('Join token can be used to link a bot', async ({ page }) => {

@@ -2505,6 +2505,7 @@ app.post("/api/bot/cast", (req, res) => {
 app.get("/env.js", (_req, res) => {
   const env = {
     ctTest: String(process.env.CT_TEST || "") === "1",
+    publicBaseUrl: String(process.env.CT_PUBLIC_BASE_URL || "").trim().replace(/\/+$/, ""),
   };
   res.setHeader("Content-Type", "application/javascript; charset=utf-8");
   res.setHeader("Cache-Control", "no-store");

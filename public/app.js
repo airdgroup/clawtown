@@ -824,7 +824,10 @@ function flashStatus(text, ms = 1400) {
 
 function canonicalShareUrl() {
   try {
+    const envUrl = String(globalThis.__CT_ENV__?.publicBaseUrl || "").trim().replace(/\/+$/, "");
+    if (/^https?:\/\//i.test(envUrl)) return envUrl;
     const host = String(location.hostname || "");
+    if (host === "localhost" || host === "127.0.0.1" || host === "0.0.0.0") return "https://clawtown.io";
     if (host.endsWith("clawtown.io") || host.endsWith("clawtown.fly.dev")) return "https://clawtown.io";
     return String(location.origin || "").replace(/\/+$/, "");
   } catch {
