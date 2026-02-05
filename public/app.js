@@ -1655,7 +1655,7 @@ async function fileToSquarePngDataUrl(file, size, { removeBg = false } = {}) {
     sg.imageSmoothingEnabled = false;
     sg.drawImage(img, sx, sy, m, m, 0, 0, ss, ss);
 
-    function tryRemoveBgEdges() {
+    function tryRemoveBgEdges({ allowAuto = false } = {}) {
       const imgData = sg.getImageData(0, 0, ss, ss);
       const data = imgData.data;
       const idx = (x, y) => (y * ss + x) * 4;
@@ -1671,6 +1671,19 @@ async function fileToSquarePngDataUrl(file, size, { removeBg = false } = {}) {
 
       // If the image already has transparency near the edges, don't touch it.
       if (corners.some((c) => c.a < 10)) return false;
+
+      // Auto mode should be conservative: we only try to remove backgrounds that look like
+      // "checkerboard" / white exports (common when users screenshot a transparent PNG preview).
+      if (allowAuto) {
+        const bright = (c) => (c.r + c.g + c.b) / 3;
+        const bs = corners.map((c) => bright(c));
+        const minB = Math.min(...bs);
+        const maxB = Math.max(...bs);
+        const allBright = minB >= 205;
+        const looksLikeChecker = allBright && maxB - minB >= 10;
+        const looksLikeWhite = allBright && maxB >= 235;
+        if (!looksLikeChecker && !looksLikeWhite) return false;
+      }
 
       const tol = 22; // RGB manhattan distance for clustering
       const clusters = [];
@@ -1769,7 +1782,11 @@ async function fileToSquarePngDataUrl(file, size, { removeBg = false } = {}) {
       return true;
     }
 
+    // Background removal:
+    // - If the user explicitly enables "Fix background", always attempt it.
+    // - Otherwise, auto-attempt only for very bright checker/white backgrounds (safe default).
     if (removeBg) tryRemoveBgEdges();
+    else tryRemoveBgEdges({ allowAuto: true });
 
     // Content-aware crop: compute bbox of non-transparent pixels, then pad it so avatars feel consistent on map.
     const clampN = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
@@ -1794,7 +1811,7 @@ async function fileToSquarePngDataUrl(file, size, { removeBg = false } = {}) {
       }
       if (maxX >= 0 && maxY >= 0) {
         // More padding keeps avatars visually consistent (big-head pixel art won't dominate the map).
-        const pad = Math.max(12, Math.floor(Math.max(maxX - minX, maxY - minY) * 0.22));
+        const pad = Math.max(16, Math.floor(Math.max(maxX - minX, maxY - minY) * 0.28));
         minX = Math.max(0, minX - pad);
         minY = Math.max(0, minY - pad);
         maxX = Math.min(ss - 1, maxX + pad);
