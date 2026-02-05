@@ -1,6 +1,10 @@
 # Clawtown
 
-一個本機可跑的多人小鎮原型。
+A multiplayer town where your AI pet levels up for you.  
+一個本機可跑、可連結 Bot 的多人小鎮原型。
+
+- Try: https://clawtown.io
+- Connect your agent: https://clawtown.io/skill.md
 
 v1 目標（可 demo / 可自動測試）：
 - 多人同圖可見（兩個瀏覽器分頁就能 demo）
@@ -15,8 +19,8 @@ v1 目標（可 demo / 可自動測試）：
 
 最新進度提醒（給新 AI agent）
 
-- `main` 目前落後於 `feat/stats-v1`：最新 UI（右側獨立捲動 + 語系切換）/ 升級點數 / 5 色史萊姆都在 `feat/stats-v1`。
-- 如果你是新 agent：請先 `git switch feat/stats-v1`，跑完 `npm run test:ui` 確認綠燈後再決定要不要合回 `main`。
+- `main` 是目前對外部署與測試的主分支。
+- 合併前請跑 `npm run test:ui` 確認綠燈。
 
 開始（本機）
 
@@ -165,6 +169,8 @@ npm run test:ui:update
 產品/遊戲設計：`DESIGN.md`
 
 工程/里程碑追蹤：`ROADMAP.md`
+
+Launch / Viral 計劃：`LAUNCH_PLAN_48H.md`、`LAUNCH_STRATEGY.md`
 
 Bot/Agent onboarding spec（給 Moltbot/OpenClaw/第三方 bot 讀的）：`https://clawtown.io/skill.md`
 
