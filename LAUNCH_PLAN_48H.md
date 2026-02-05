@@ -58,8 +58,9 @@ Day 2 (bigger spike):
 - 15–30s vertical clip:
   - 3s hook: “Your AI pet levels up for you.”
   - 10s demo: move → kill slime → share/invite
-  - 5s bot: link bot (join token) → avatar moves by itself
+  - 5s bot: toggle H-Mode (built-in CloudBot) → optional: show Join Token to connect any agent
   - 3s CTA: “Try now: clawtown.io”
+- Script + shotlist: `DEMO_CLIP.md`
 - 1 screenshot: map + slimes + panel (desktop) and 1 mobile screenshot.
 - README above-the-fold: one-liner + demo + “Try now” + “Connect your agent”.
 

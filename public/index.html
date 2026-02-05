@@ -53,8 +53,8 @@
               <div class="hud-chip" id="hudName">匿名</div>
               <div class="hud-chip" id="hudJob">初心者</div>
               <div class="hud-chip" id="hudLevel">等級 1</div>
-              <div class="hud-chip" id="hudMode">手動</div>
-              <div class="hud-chip hud-chip-subtle" id="hudBot">Bot：未連結</div>
+              <button type="button" class="hud-chip hud-chip-btn" id="hudMode" aria-label="Toggle mode">手動</button>
+              <button type="button" class="hud-chip hud-chip-subtle hud-chip-btn" id="hudBot" aria-label="Open bot link">Bot：未連結</button>
             </div>
             <div class="hud-right">
               <div class="hud-help" id="hudHelp" data-i18n="hud.help">WASD/方向鍵移動・Enter 聊天・滑鼠點地面設定目標</div>
@@ -443,7 +443,7 @@
       <div class="modal-card" role="dialog" aria-modal="true" aria-label="Welcome">
         <div class="modal-title" data-i18n="onboarding.title">歡迎來到 Clawtown</div>
         <div class="modal-text" data-i18n="onboarding.text">
-          先用手動模式走走看。去「分類帽」拿到你的職業與專屬招式，然後連結你的 CloudBot 解鎖 H-Mode（自動移動/聊天/打怪）。
+          先用手動模式走走看：走動 → 按 4 打倒第一隻史萊姆。想要 AI 寵物自動打怪：切到 H-Mode。想用你自己的 Agent：去「連結 Bot」把 Join Token 貼給它。
         </div>
         <div class="modal-actions">
           <button class="btn" id="onboardingStart" data-i18n="onboarding.start">進入小鎮</button>

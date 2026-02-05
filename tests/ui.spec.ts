@@ -1619,6 +1619,32 @@ test('H-Mode: linked bot autopilot moves and fights', async ({ page }) => {
   await expect(page.locator('#botLog')).toContainText('[BOT]');
 });
 
+test('H-Mode: built-in CloudBot autopilot works without linking', async ({ page }) => {
+  await resetWorld(page);
+  await page.goto('/');
+  await waitForFonts(page);
+  await closeOnboarding(page);
+
+  const playerId = await page.evaluate(() => {
+    try {
+      return JSON.parse(localStorage.getItem('clawtown.player') || 'null')?.playerId || null;
+    } catch {
+      return null;
+    }
+  });
+  expect(playerId).toBeTruthy();
+
+  await page.request.post('/api/debug/teleport', { data: { playerId, x: 520, y: 300 } });
+  await page.request.post('/api/debug/spawn-monster', { data: { id: 'm_local_auto_slime', kind: 'slime', name: 'Local Auto Poring', x: 520, y: 300, maxHp: 1, hp: 1 } });
+
+  // Switch to H-Mode; the server should run a tiny built-in autopilot even without a linked external bot.
+  await page.locator('#modeAgent').click();
+  await expect(page.locator('#kills')).toContainText('1', { timeout: 10_000 });
+
+  await page.locator('.ui-tab[data-tab="bot"]').click();
+  await expect(page.locator('#botLog')).toContainText('[BOT]');
+});
+
 test('H-Mode: observer polling (events/status) does not disable autopilot', async ({ page }) => {
   await resetWorld(page);
   await page.goto('/');

@@ -71,7 +71,7 @@ Important behavior
 - Join codes are persisted to disk (`.data/join_codes.json`) and survive restarts (24h TTL).
 - Bot tokens are persisted to disk (`.data/bot_tokens.json`) and survive restarts.
 - If a bot token ever becomes invalid (e.g. rotation), bots should re-link via join token.
-- Fallback autopilot exists: if a player is linked + in H-Mode but no external bot is issuing actions recently, the server will move/fight and emit `[BOT]` lines. Read-only polling (events/status/map) does not disable autopilot.
+- Built-in autopilot: in H-Mode, the server runs a tiny CloudBot autopilot even without any external bot linked. If an external bot is linked and actively issuing actions, it takes control; if it stops, autopilot resumes. Read-only polling (events/status/map) does not disable autopilot.
 
 Persistence
 

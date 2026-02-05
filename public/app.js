@@ -391,9 +391,9 @@ const I18N = {
     "invite.shareBtn": "分享",
     "invite.copyBtn": "複製文字",
     "onboarding.title": "歡迎來到 Clawtown",
-    "onboarding.text": "先選語言（右上）→ 用 WASD/方向鍵（或手機左下搖桿）走動 → 按 4 攻擊，先打倒第一隻史萊姆！想要全自動：去「連結 Bot」把 Join Token 貼給 Moltbot/Clawbot 解鎖 H-Mode。",
+    "onboarding.text": "先選語言（右上）→ 走動（WASD/方向鍵或手機搖桿）→ 按 4 打倒第一隻史萊姆！想要 AI 寵物自動打怪：切到「H-Mode」。想用你自己的 Agent：去「連結 Bot」把 Join Token 貼給它。",
     "onboarding.start": "進入小鎮",
-    "onboarding.goHat": "先連結 Bot",
+    "onboarding.goHat": "連結自己的 Agent（選用）",
     "onboarding.foot": "小技巧：本機開兩個分頁就能 demo 多人互動。",
     "onboarding.pwaTip": "iOS 小技巧：點分享 →「加入主畫面」可全螢幕（比較不會被 Safari tabs 擋住）。",
     "status.connecting": "連線中...",
@@ -564,9 +564,9 @@ const I18N = {
     "invite.shareBtn": "Share",
     "invite.copyBtn": "Copy text",
     "onboarding.title": "Welcome to Clawtown",
-    "onboarding.text": "Pick a language (top-right) → Move with WASD/Arrows (or the mobile joystick) → Press 4 to defeat your first slime! Want autopilot? Go to “Link Bot”, paste the Join Token into Moltbot/Clawbot, and switch to H-Mode.",
+    "onboarding.text": "Pick a language (top-right) → Move (WASD/Arrows or joystick) → Press 4 to defeat your first slime! Want autopilot? Switch to H-Mode (built-in CloudBot). Want your own agent? Go to “Link Bot” and paste the Join Token into it.",
     "onboarding.start": "Enter town",
-    "onboarding.goHat": "Link Bot first",
+    "onboarding.goHat": "Connect your agent (optional)",
     "onboarding.foot": "Tip: open two tabs to demo multiplayer.",
     "onboarding.pwaTip": "iOS tip: Share → Add to Home Screen for fullscreen (hides Safari tabs).",
     "status.connecting": "Connecting...",
@@ -684,6 +684,11 @@ function setLang(next) {
   lang = next === 'en' ? 'en' : 'zh';
   try {
     localStorage.setItem(LANG_KEY, lang);
+  } catch {
+    // ignore
+  }
+  try {
+    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "set_lang", lang }));
   } catch {
     // ignore
   }
@@ -1013,6 +1018,33 @@ document.addEventListener("keydown", (e) => {
 openTab("character");
 
 applyI18n();
+
+hudModeEl?.addEventListener("click", () => {
+  if (!you) return;
+  const next = you.mode === "agent" ? "manual" : "agent";
+  setMode(next);
+  try {
+    you.mode = next;
+  } catch {
+    // ignore
+  }
+  renderHeader();
+  flashStatus(
+    next === "agent"
+      ? (lang === "en" ? "H-Mode enabled (CloudBot autopilot)" : "已切換：H-Mode（CloudBot 自動）")
+      : (lang === "en" ? "Manual mode" : "手動模式"),
+    1400,
+  );
+});
+
+hudBotEl?.addEventListener("click", () => {
+  try {
+    if (panelEl && panelEl.classList.contains("is-collapsed")) setDrawerCollapsed(false);
+  } catch {
+    // ignore
+  }
+  openTab("link");
+});
 
 // Mobile drawer (bottom sheet) — keep the map large.
 const MOBILE_DRAWER_KEY = "clawtown.mobileDrawer"; // "open" | "collapsed"
@@ -2829,8 +2861,18 @@ function renderHeader() {
   if (hudNameEl) hudNameEl.textContent = you.name;
   if (hudJobEl) hudJobEl.textContent = `${t('hud.job')}${jobName(you.job)}`;
   if (hudLevelEl) hudLevelEl.textContent = `${t('hud.level')}${you.level}`;
-  if (hudModeEl) hudModeEl.textContent = you.mode === 'agent' ? t('hud.modeAgent') : t('hud.modeManual');
-  if (hudBotEl) hudBotEl.textContent = you.linkedBot ? t('hud.botLinked') : t('hud.botUnlinked');
+  if (hudModeEl) {
+    hudModeEl.textContent = you.mode === "agent" ? t("hud.modeAgent") : t("hud.modeManual");
+    hudModeEl.title = lang === "en" ? "Tap to toggle Manual / H-Mode" : "點一下切換 手動 / H-Mode";
+  }
+  if (hudBotEl) {
+    hudBotEl.textContent = you.linkedBot
+      ? t("hud.botLinked")
+      : you.mode === "agent"
+        ? (lang === "en" ? "CloudBot: autopilot" : "CloudBot：自動")
+        : t("hud.botUnlinked");
+    hudBotEl.title = lang === "en" ? "Tap to connect your agent (optional)" : "點一下連結你的 Agent（選用）";
+  }
 
   // Mobile: show joystick only in manual mode.
   try {
@@ -3864,9 +3906,13 @@ function renderBotThoughts() {
     if (!you) {
       botStatusEl.textContent = lang === 'en' ? 'Loading player state…' : '尚未載入角色狀態。';
     } else if (!you.linkedBot) {
-      botStatusEl.textContent = lang === 'en'
-        ? 'Bot not linked. Go to “Link Bot” to generate a Join Token.'
-        : '尚未連結 Bot。去「連結 Bot」產生 Join Token。';
+      botStatusEl.textContent = you.mode === 'agent'
+        ? (lang === 'en'
+          ? 'H-Mode is running (built-in CloudBot autopilot). Want your own agent? Go to “Link Bot” to generate a Join Token.'
+          : 'H-Mode 已啟用（內建 CloudBot 自動）。想用你自己的 Agent？去「連結 Bot」產生 Join Token。')
+        : (lang === 'en'
+          ? 'Bot not linked. Go to “Link Bot” to generate a Join Token.'
+          : '尚未連結 Bot。去「連結 Bot」產生 Join Token。');
     } else {
       const now = Date.now();
       const seenAt = b && Number(b.lastSeenAt || 0);
@@ -3912,6 +3958,11 @@ function connect() {
     // Some WebKit/iOS environments can show WS as "open" yet stall message delivery.
     // Keep the UX honest until we actually have a world snapshot.
     statusEl.textContent = t('status.connected');
+    try {
+      ws.send(JSON.stringify({ type: "set_lang", lang }));
+    } catch {
+      // ignore
+    }
     setTimeout(() => {
       if (!state || !state.world) {
         statusEl.textContent = lang === "en" ? "Syncing world…" : "同步世界中…";

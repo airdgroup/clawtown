@@ -67,9 +67,12 @@ Bot 綁定（Join Token → botToken）
 
 如果你要「不靠外部 Moltbot 也能看到 H-Mode 角色會動」
 
-- v1 有內建 fallback autopilot：當角色已 linked + 切到 H-Mode，但外部 bot 沒有持續輪詢世界時，server 會自動巡邏/打怪並吐 `[BOT]` 想法，避免看起來像壞掉。
+- H-Mode 本身就有內建 CloudBot autopilot（不需要連結任何外部 agent）。
+- 「連結 Bot」是讓你自己的 Agent 可以接管控制；如果外部 Agent 停止動作，內建 autopilot 會接手，避免看起來像壞掉。
 
 API：Bot 控制（curl）
+
+Examples（BYO Agent）：`examples/README.md`
 
 1) Link（取得 botToken）
 ```
@@ -171,6 +174,8 @@ npm run test:ui:update
 工程/里程碑追蹤：`ROADMAP.md`
 
 Launch / Viral 計劃：`LAUNCH_PLAN_48H.md`、`LAUNCH_STRATEGY.md`
+
+Demo clip 腳本（給設計/行銷）：`DEMO_CLIP.md`
 
 Bot/Agent onboarding spec（給 Moltbot/OpenClaw/第三方 bot 讀的）：`https://clawtown.io/skill.md`
 

@@ -235,6 +235,19 @@ main {
   background: rgba(255, 255, 255, 0.72);
   box-shadow: 0 10px 20px rgba(9, 19, 36, 0.1);
   color: rgba(19, 27, 42, 0.85);
+  appearance: none;
+}
+
+.hud-chip-btn {
+  pointer-events: auto;
+  cursor: pointer;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+.hud-chip-btn:active {
+  transform: translateY(1px);
 }
 
 .hud-chip-subtle {

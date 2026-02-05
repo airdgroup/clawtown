@@ -97,6 +97,7 @@ function exportPlayerProgress(p) {
     savedAt: new Date().toISOString(),
     id: p.id,
     name: p.name,
+    uiLang: p.uiLang === "en" ? "en" : "zh",
     avatarVersion: Math.max(0, Math.floor(Number(p.avatarVersion) || 0)),
     job: p.job,
     level: p.level,
@@ -122,6 +123,7 @@ function exportPlayerProgress(p) {
 function importPlayerProgress(p, data) {
   if (!p || !data || typeof data !== "object") return;
   if (typeof data.name === "string") p.name = normalizeName(data.name);
+  if (typeof data.uiLang === "string") p.uiLang = data.uiLang === "en" ? "en" : "zh";
   if (Number.isFinite(Number(data.avatarVersion))) p.avatarVersion = Math.max(0, Math.floor(Number(data.avatarVersion)));
   if (typeof data.job === "string") p.job = String(data.job);
   if (Number.isFinite(Number(data.level))) p.level = Math.max(1, Math.floor(Number(data.level)));
@@ -908,6 +910,7 @@ function getOrCreatePlayer(playerId, name) {
       mode: "manual", // manual | agent
       intent: "",
       interrupt: "all", // off | mentions | nearby | all
+      uiLang: "zh", // "zh" | "en" (for server-side autopilot thoughts)
       hp: 30,
       maxHp: 30,
       level: 1,
@@ -1695,11 +1698,12 @@ function markBotAction(p) {
 function canAutopilot(p) {
   if (!p) return false;
   if (p.mode !== 'agent') return false;
-  if (!p.linkedBot) return false;
   const lastAction = Number(p.externalBotLastActionAt || 0);
   // If an external bot is actively issuing actions recently, assume it is in control.
   // Read-only polling (events/status/map) should NOT disable server-side autopilot.
-  return nowMs() - lastAction > 8000;
+  if (p.linkedBot) return nowMs() - lastAction > 8000;
+  // No external bot linked: H-Mode uses the built-in CloudBot autopilot.
+  return true;
 }
 
 function maybeProximityEvents(p) {
@@ -1746,8 +1750,11 @@ function maybeAutopilot(p) {
     const gap = now - Number(p._autoBotThoughtAt || 0);
     if (gap < 2500) return;
     p._autoBotThoughtAt = now;
-    pushChat({ kind: 'chat', text: `[BOT] ${text}`, from: { id: p.id, name: p.name } });
+    // Keep built-in autopilot thoughts private to the player (avoid global chat spam).
+    pushChat({ kind: "chat", text: `[BOT] ${text}`, from: { id: p.id, name: p.name }, toPlayerId: p.id });
   };
+
+  const uiLang = p.uiLang === "en" ? "en" : "zh";
 
   // Prioritize nearby monsters.
   const huntRange = 520;
@@ -1759,7 +1766,7 @@ function maybeAutopilot(p) {
       performCast(p, { spell: 'signature', source: 'autopilot' });
       if (p._autoBotState !== `hit:${target.id}`) {
         p._autoBotState = `hit:${target.id}`;
-        say(`攻擊 ${target.name}。`);
+        say(uiLang === "en" ? `Attacking ${target.name}.` : `攻擊 ${target.name}。`);
       }
       return;
     }
@@ -1767,7 +1774,7 @@ function maybeAutopilot(p) {
       p.goal = { x: target.x, y: target.y };
       if (p._autoBotState !== `hunt:${target.id}`) {
         p._autoBotState = `hunt:${target.id}`;
-        say(`看到 ${target.name}，靠近準備攻擊。`);
+        say(uiLang === "en" ? `Hunting ${target.name}...` : `看到 ${target.name}，靠近準備攻擊。`);
       }
     }
     return;
@@ -1784,7 +1791,7 @@ function maybeAutopilot(p) {
     };
     if (p._autoBotState !== 'wander') {
       p._autoBotState = 'wander';
-      say('巡邏廣場中。');
+      say(uiLang === "en" ? "Patrolling the plaza." : "巡邏廣場中。");
     }
   }
 }
@@ -2648,6 +2655,13 @@ wss.on("connection", (ws, req) => {
 
     if (type === "set_name") {
       player.name = normalizeName(msg?.name);
+      markDirty(player);
+      return;
+    }
+
+    if (type === "set_lang") {
+      const next = String(msg?.lang || "").trim().toLowerCase();
+      player.uiLang = next === "en" ? "en" : "zh";
       markDirty(player);
       return;
     }
