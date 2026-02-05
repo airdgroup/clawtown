@@ -690,6 +690,19 @@ function clamp01(x) {
   return x < 0 ? 0 : x > 1 ? 1 : x;
 }
 
+function clamp(x, lo, hi) {
+  const v = Number(x);
+  const a = Number(lo);
+  const b = Number(hi);
+  if (!Number.isFinite(v)) return Number.isFinite(a) ? a : 0;
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return v;
+  const min = Math.min(a, b);
+  const max = Math.max(a, b);
+  if (v < min) return min;
+  if (v > max) return max;
+  return v;
+}
+
 function lerp(a, b, t) {
   return a + (b - a) * clamp01(t);
 }
@@ -920,6 +933,9 @@ function isMobileLayout() {
 
     // Primary: CSS media queries (fast path).
     if (mm("(max-width: 640px)").matches) return true;
+    // Touch landscape (phones/tablets): use mobile controls + drawer UX.
+    if (mm("(pointer: coarse) and (hover: none) and (orientation: landscape) and (max-width: 1400px)").matches) return true;
+    // Legacy heuristic (older layout rule).
     if (mm("(max-height: 520px) and (max-width: 1024px) and (orientation: landscape)").matches) return true;
 
     // Fallback: Some Safari modes (e.g. "Request Desktop Website") can lie about viewport width.
@@ -929,11 +945,12 @@ function isMobileLayout() {
     if (!touch && !coarse) return false;
 
     const sw = Math.min(Number(screen?.width || 0) || 0, Number(screen?.height || 0) || 0) || 0;
-    if (isProbablyIOS() && sw > 0 && sw <= 520) return true;
+    // iPads in landscape often render "desktop" width; still treat as mobile for controls.
+    if (isProbablyIOS() && sw > 0 && sw <= 1024) return true;
 
     // Generic touch fallback.
     const w = Math.min(window.innerWidth || 0, window.innerHeight || 0) || 0;
-    return w > 0 && w <= 520;
+    return w > 0 && w <= 1024;
   } catch {
     return false;
   }

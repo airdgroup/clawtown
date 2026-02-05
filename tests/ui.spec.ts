@@ -341,9 +341,41 @@ test('Mobile: bottom drawer collapses and map stays playable', async ({ page }) 
   await expect(page.locator('#panel')).not.toHaveClass(/is-collapsed/);
 });
 
-test('Mobile landscape: panel drawer toggles with menu button', async ({ page }) => {
+test('Mobile: game canvas renders (not blank)', async ({ page }) => {
   await resetWorld(page);
-  await page.setViewportSize({ width: 844, height: 390 });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');
+  await waitForFonts(page);
+  await closeOnboarding(page);
+
+  await page.waitForFunction(() => Boolean((window as any).__ct?.state?.world), null, { timeout: 5000 });
+
+  const nonTransparent = await page.locator('#game').evaluate((c) => {
+    const canvas = c as HTMLCanvasElement;
+    const g = canvas.getContext('2d');
+    if (!g) return 0;
+    const { data } = g.getImageData(0, 0, canvas.width, canvas.height);
+    let n = 0;
+    // Sample pixels for speed: if the map is drawing, alpha will be non-zero quickly.
+    for (let i = 3; i < data.length; i += 4 * 900) {
+      if (data[i] > 10) n++;
+      if (n > 40) break;
+    }
+    return n;
+  });
+
+  expect(nonTransparent).toBeGreaterThan(20);
+});
+
+test('Mobile landscape: panel drawer toggles with menu button', async ({ browser }) => {
+  const ctx = await browser.newContext({
+    viewport: { width: 844, height: 390 },
+    isMobile: true,
+    hasTouch: true,
+  });
+  const page = await ctx.newPage();
+
+  await resetWorld(page);
   await page.goto('/');
   await waitForFonts(page);
   await closeOnboarding(page);
@@ -358,6 +390,44 @@ test('Mobile landscape: panel drawer toggles with menu button', async ({ page })
 
   await page.click('#mobileMenu');
   await expect(page.locator('#panel')).toHaveClass(/is-collapsed/);
+
+  await ctx.close();
+});
+
+test('Tablet landscape (iPad): joystick + action bar are visible and page can scroll a bit', async ({ browser }) => {
+  const ctx = await browser.newContext({
+    viewport: { width: 1366, height: 1024 },
+    isMobile: true,
+    hasTouch: true,
+  });
+  const page = await ctx.newPage();
+
+  await resetWorld(page);
+  await page.goto('/');
+  await waitForFonts(page);
+  await closeOnboarding(page);
+
+  await expect(page.locator('#mobileMenu')).toBeVisible();
+  await expect(page.locator('#panel')).toHaveClass(/is-collapsed/);
+  await expect(page.locator('#actionbar')).toBeVisible();
+  await expect(page.locator('#joystick')).toBeVisible();
+
+  const joy = await page.locator('#joystick').boundingBox();
+  expect(joy).toBeTruthy();
+  expect(joy!.y + joy!.height).toBeLessThanOrEqual(1024 + 2);
+
+  const ab = await page.locator('#actionbar').boundingBox();
+  expect(ab).toBeTruthy();
+  expect(ab!.y + ab!.height).toBeLessThanOrEqual(1024 + 2);
+
+  const delta = await page.evaluate(() => {
+    const before = window.scrollY;
+    window.scrollTo(0, 60);
+    return Math.max(0, window.scrollY - before);
+  });
+  expect(delta).toBeGreaterThan(0);
+
+  await ctx.close();
 });
 
 test('Fallback: /api/state polling recovers when WS messages stall (iOS/WebKit)', async ({ page }) => {

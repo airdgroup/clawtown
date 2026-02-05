@@ -936,12 +936,13 @@ main {
 
   /* A tiny scroll target to let Safari hide its top/bottom chrome. */
   #scrollShim {
-    height: 120px;
+    /* #app is position:fixed in mobile mode, so the shim must include one viewport height + a small extra. */
+    height: calc(var(--ct-vh, 1vh) * 100 + 120px);
   }
 }
 
-/* Mobile landscape: map-first, panels slide from the right. */
-@media (max-height: 520px) and (orientation: landscape) and (max-width: 1400px) {
+/* Touch landscape (phones/tablets): map-first, panels slide from the right. */
+@media (pointer: coarse) and (hover: none) and (orientation: landscape) and (max-width: 1400px) {
   :root {
     --ct-joy-size-land: clamp(120px, 22vw, 160px);
     --ct-action-gap-land: 10px;
@@ -1091,7 +1092,8 @@ main {
 
   /* In landscape, Safari sometimes needs a larger scroll target to hide tabs/address bar. */
   #scrollShim {
-    height: 140px;
+    /* #app is position:fixed in mobile mode, so the shim must include one viewport height + a small extra. */
+    height: calc(var(--ct-vh, 1vh) * 100 + 140px);
   }
 }
 
@@ -1187,8 +1189,8 @@ textarea {
   resize: vertical;
 }
 
-/* Desktop default: hide mobile-only affordances. (Landscape phones re-enable menu.) */
-@media (min-width: 641px) and (min-height: 521px) {
+/* Desktop default: hide mobile-only affordances. */
+@media (min-width: 641px) and (min-height: 521px) and (hover: hover) and (pointer: fine) {
   .mobile-fab,
   .drawer-handle {
     display: none;
@@ -1588,7 +1590,7 @@ textarea {
   }
 }
 
-@media (min-width: 1101px) {
+@media (min-width: 1101px) and (hover: hover) and (pointer: fine) {
   /* Desktop: right panel scroll only; left stage stays fixed. */
   body {
     overflow: hidden;

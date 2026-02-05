@@ -7,6 +7,8 @@
     "dev": "node --watch-path=server --watch-path=public server/index.js",
     "start": "node server/index.js",
     "join:token": "node scripts/get-join-token.mjs",
+    "smoke:mobile": "node scripts/smoke-mobile.mjs --baseUrl http://127.0.0.1:3000",
+    "smoke:prod": "node scripts/smoke-mobile.mjs --baseUrl https://clawtown.io",
     "test:ui": "playwright test",
     "test:ui:update": "playwright test --update-snapshots"
   },

@@ -4,6 +4,7 @@ node_modules/
 # test artifacts
 test-results/
 playwright-report/
+output/
 
 # logs
 *.log

@@ -62,3 +62,12 @@
 
 - 代表 UI 有預期變更（或 font/尺寸微變）
 - 更新 snapshot：`npm run test:ui:update`
+
+4) Playwright WebKit 在某些 macOS 版本上啟動會直接 crash（Bus error）
+
+- 現象：`playwright test --browser=webkit` 或 `webkit.launch()` 一啟動就 `Bus error: 10`
+- 這通常是 Playwright 內建的 WebKit build 與特定 macOS 小版本不相容（屬於瀏覽器原生 crash，不是 Clawtown 程式碼）
+- Workarounds：
+  - 先用 Chromium mobile emulation 跑關鍵流程（本 repo 的 `npm run test:ui` 預設就是 chromium）
+  - 用 `node scripts/smoke-mobile.mjs --baseUrl https://clawtown.io` 做部署後手機畫面 smoke check（會截 `#game`）
+  - 在另一台機器/CI 上跑 WebKit（或升級 macOS / 升級 `@playwright/test` 後再試）
