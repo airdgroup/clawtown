@@ -602,7 +602,7 @@ main {
 }
 
 /* Mobile-first UX: keep the map big, move panels into a bottom drawer. */
-@media (max-width: 640px), (pointer: coarse) and (hover: none) and (max-width: 1024px) and (orientation: portrait) {
+@media (max-width: 640px), (pointer: coarse) and (hover: none) and (orientation: portrait) {
   :root {
     --drawer-collapsed: 86px;
     --drawer-expanded: 62dvh;
@@ -941,7 +941,7 @@ main {
 }
 
 /* Mobile landscape: map-first, panels slide from the right. */
-@media (max-height: 520px) and (max-width: 1024px) and (orientation: landscape) {
+@media (max-height: 520px) and (orientation: landscape) and (max-width: 1400px) {
   :root {
     --ct-joy-size-land: clamp(120px, 22vw, 160px);
     --ct-action-gap-land: 10px;
