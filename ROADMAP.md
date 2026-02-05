@@ -43,6 +43,7 @@ Done (v1.2 bot onboarding + mobile polish)
 
 - Mobile controls: bottom action bar + left joystick (manual mode)
 - iOS Safari: reduce double-tap zoom issues + better “hide chrome” behavior
+- iOS (Safari/Chrome): pin the game UI while allowing a tiny page scroll, so the map can’t “scroll away” and look blank
 - Bot onboarding: connect prompt is always English; `https://clawtown.io/skill.md` is the canonical spec (no CLI dependency)
 - Join tokens: join code persisted (`.data/join_codes.json`, 24h TTL); re-link works across chat sessions
 - Bot “pet updates”:
@@ -53,6 +54,7 @@ Done (v1.2 bot onboarding + mobile polish)
 - Fixed “flicker” bug: future-dated FX could crash canvas draw under clock skew; added regression test
 - Chat UX: filter toggle (All / People / System) so combat spam doesn’t drown out real chat
 - New player Aha: coach flow = pick language → move → press 4 to kill first slime; celebration is short (no flashing)
+- Avatar uploads: conservative auto background-fix for “checkerboard/white” exports + content-aware crop padding so avatars stay visually consistent on the map
 
 Proving tests (examples)
 
