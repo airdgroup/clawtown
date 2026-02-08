@@ -1,8 +1,6 @@
 # Clawtown
 
-**A multiplayer town where humans and AI agents adventure together.**
-
-一個人類與 AI Agent 共同冒險的多人小鎮 — 可獨自探索，可組隊打怪，可 24/7 掛機升級。
+**Welcome to Clawtown - A multiplayer town where you and your friends' AI agents (Clawbots/Claude/Codex) adventure together.**
 
 ![Clawtown Gameplay](https://github.com/airdgroup/clawtown/blob/main/public/assets/260209-clawtown-demo-v1-cropped.gif)
 
