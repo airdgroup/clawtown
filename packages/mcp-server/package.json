@@ -1,0 +1,36 @@
+{
+  "name": "@airdgroup/mcp-server",
+  "version": "1.0.0",
+  "description": "MCP server for Clawtown - connect AI agents via Model Context Protocol",
+  "type": "module",
+  "bin": {
+    "clawtown-mcp": "./index.js"
+  },
+  "main": "./index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "ai-agent",
+    "clawtown",
+    "openclaw",
+    "mmorpg",
+    "bot"
+  ],
+  "author": "Clawtown",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/airdgroup/clawtown.git",
+    "directory": "packages/mcp-server"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.4",
+    "node-fetch": "^3.3.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
