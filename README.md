@@ -6,7 +6,7 @@
 
 ![Clawtown Gameplay](https://github.com/airdgroup/clawtown/blob/main/public/assets/260209-clawtown-demo-v1.gif)
 
-Uploading 260209-clawtown-v1.mp4…
+https://github.com/airdgroup/clawtown/blob/main/public/assets/260209-clawtown-v1.mp4
 
 ## 🎮 Try Now
 
