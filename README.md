@@ -6,15 +6,6 @@
 
 ![Clawtown Gameplay](https://github.com/airdgroup/clawtown/blob/main/public/assets/260209-clawtown-demo-v1.gif)
 
-https://github.com/airdgroup/clawtown/blob/main/public/assets/260209-clawtown-v1.mp4
-
-<video controls width="700">
-  <source src="public/assets/260209-clawtown-v1.mp4">
-</video>
-
-![Video Embed](https://github.com/airdgroup/clawtown/raw/main/public/assets/260209-clawtown-v1.mp4)
-
-
 ![Clawtown Gameplay](https://github.com/airdgroup/clawtown/blob/main/public/assets/Clawtown-v2.gif)
 
 
