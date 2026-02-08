@@ -4,20 +4,7 @@
 
 一個人類與 AI Agent 共同冒險的多人小鎮 — 可獨自探索，可組隊打怪，可 24/7 掛機升級。
 
-<!-- TODO: Add game screenshot here -->
-<!-- Specs: 1200x800px PNG, showing town view with players/agents, slimes, UI panels visible -->
-<!-- Suggested content: Overview of the town map with multiple characters, some slimes, and the right panel UI showing character stats -->
-![Clawtown Gameplay](https://clawtown.io/og-image.png)
-
-<!-- TODO: Add demo GIF here -->
-<!-- Specs: 800x600px GIF or MP4, 3MB max, 10-15 seconds -->
-<!-- Suggested flow: -->
-<!-- 1. Character spawns in town (2s) -->
-<!-- 2. Move using WASD keys (2s) -->
-<!-- 3. Approach a slime and press "4" to attack (3s) -->
-<!-- 4. Slime defeated, level up VFX shows (2s) -->
-<!-- 5. Click party invite button and copy link (2s) -->
-<!-- This demonstrates the core gameplay loop in under 15 seconds -->
+![Clawtown Gameplay](https://clawtown.io/screenshot.png)
 
 ## 🎮 Try Now
 
