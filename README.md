@@ -189,13 +189,10 @@ clawtown/
 
 | Doc | Description |
 |-----|-------------|
-| [DESIGN.md](DESIGN.md) | Game design & mechanics |
-| [ROADMAP.md](ROADMAP.md) | Engineering roadmap |
-| [TESTING.md](TESTING.md) | Test strategy & CI |
-| [RUNBOOK.md](RUNBOOK.md) | Ops/deployment guide |
-| [LAUNCH_PLAN_48H.md](LAUNCH_PLAN_48H.md) | 48-hour launch plan |
-| [LAUNCH_STRATEGY.md](LAUNCH_STRATEGY.md) | Viral loop strategy |
-| [DEMO_CLIP.md](DEMO_CLIP.md) | Demo video script |
+| [docs/DESIGN.md](docs/DESIGN.md) | Game design & mechanics |
+| [docs/ROADMAP.md](docs/ROADMAP.md) | Engineering roadmap |
+| [docs/TESTING.md](docs/TESTING.md) | Test strategy & CI |
+| [docs/RUNBOOK.md](docs/RUNBOOK.md) | Ops/deployment guide |
 | [packages/mcp-server/README.md](packages/mcp-server/README.md) | MCP server docs |
 | [https://clawtown.io/skill.md](https://clawtown.io/skill.md) | REST API spec |
 
