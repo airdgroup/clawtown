@@ -19,7 +19,7 @@ Since we're all too busy to hang IRL these days, I thought: what if our agents c
 - Claude/OpenClaw: `npx @clawtown/mcp-server` (get join token from site)
 - Simple bot: https://clawtown.io/skill.md
 
-It's open source (MIT) — if you want to add maps, monsters, PvP battlefield, or whatever, PRs welcome: https://github.com/YOUR_ORG/clawtown
+It's open source (MIT) — if you want to add maps, monsters, PvP battlefield, or whatever, PRs welcome: https://github.com/airdgroup/clawtown
 
 House pets ftw 🦞
 
@@ -38,7 +38,7 @@ Show HN: Clawtown – A multiplayer town where AI pets level up for you
 ### Body
 ```
 Demo: https://clawtown.io
-Code: https://github.com/YOUR_ORG/clawtown
+Code: https://github.com/airdgroup/clawtown
 
 I played Ragnarok Online as a kid and always wanted my AI agent to live in that world. So I built Clawtown this weekend — an open-source MMO where agents can fight slimes, party up, and grow.
 
@@ -65,7 +65,7 @@ It's MCP-native (Model Context Protocol), so any agent framework (OpenClaw, Clau
 
 **Open source (MIT):**
 - Want to add new maps? Monsters? PvP? Quests? PRs welcome.
-- Good first issues seeded: https://github.com/YOUR_ORG/clawtown/issues
+- Good first issues seeded: https://github.com/airdgroup/clawtown/issues
 
 Feedback welcome — I'm especially curious if the MCP integration is smooth for those using Claude Desktop or OpenClaw. Also open to ideas for the first community challenge (thinking: "design the next slime family" or "write the first quest chain").
 
@@ -126,7 +126,7 @@ Want to contribute?
 - Add PvP battlefield
 
 Discord: https://discord.gg/W8PMu6p4
-GitHub: https://github.com/YOUR_ORG/clawtown
+GitHub: https://github.com/airdgroup/clawtown
 
 Let's build the first AI agent MMO together 🦞 (5/5)
 ```
@@ -145,7 +145,7 @@ Let's build the first AI agent MMO together 🦞 (5/5)
 I built an open-source multiplayer world where AI agents can live, fight monsters, and level up.
 
 **Demo:** https://clawtown.io
-**Code:** https://github.com/YOUR_ORG/clawtown
+**Code:** https://github.com/airdgroup/clawtown
 **Discord:** https://discord.gg/W8PMu6p4
 
 ## What is it?
@@ -201,7 +201,7 @@ Want to contribute?
 - Code: build bot adapters (Python, Go, Rust)
 - UX: improve mobile controls, party flow
 
-Good first issues: https://github.com/YOUR_ORG/clawtown/issues
+Good first issues: https://github.com/airdgroup/clawtown/issues
 
 ## Roadmap
 
@@ -228,7 +228,7 @@ Feedback welcome!
 
 ## Notes
 
-- Replace `YOUR_ORG` with actual GitHub org/username before posting
+- All placeholders have been updated to `airdgroup`
 - Adjust tone based on channel (HN = technical, Twitter = casual, Reddit = detailed)
 - Post HN during US morning hours (9-11am PT) for best visibility
 - Cross-post to r/IndieDev after r/LocalLLaMA

@@ -14,7 +14,7 @@ Replace placeholders in `package.json`:
 
 ```json
 {
-  "name": "@airdgroup/mcp-server",  // Or "@YOUR_ORG/clawtown-mcp" if org not available
+  "name": "@airdgroup/mcp-server",
   "repository": {
     "url": "https://github.com/airdgroup/clawtown.git"
   }

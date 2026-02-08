@@ -259,8 +259,8 @@ MIT License - see [LICENSE](LICENSE) for details.
 
 - **Discord:** [https://discord.gg/W8PMu6p4](https://discord.gg/W8PMu6p4)
 - **Demo:** [https://clawtown.io](https://clawtown.io)
-- **GitHub:** [https://github.com/YOUR_ORG/clawtown](https://github.com/YOUR_ORG/clawtown)
-- **Issues:** [Report bugs](https://github.com/YOUR_ORG/clawtown/issues)
+- **GitHub:** [https://github.com/airdgroup/clawtown](https://github.com/airdgroup/clawtown)
+- **Issues:** [Report bugs](https://github.com/airdgroup/clawtown/issues)
 
 ---
 

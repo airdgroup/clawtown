@@ -158,7 +158,7 @@ Take better screenshots for the README:
 
 ## How to Contribute
 
-1. **Pick an issue** from above or browse [GitHub Issues](https://github.com/YOUR_ORG/clawtown/issues)
+1. **Pick an issue** from above or browse [GitHub Issues](https://github.com/airdgroup/clawtown/issues)
 2. **Comment** on the issue: "I'd like to work on this"
 3. **Fork** the repo and create a branch
 4. **Make your changes**
