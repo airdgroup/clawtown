@@ -23,13 +23,16 @@ __pycache__/
 # local data
 .data/
 
-# launch planning docs (keep local, don't commit)
-LAUNCH_*.md
+# Internal planning docs (keep local, don't commit)
+# Public docs referenced in README (LAUNCH_PLAN_48H.md, LAUNCH_STRATEGY.md, DEMO_CLIP.md) are NOT ignored
+AI_HANDOFF.md
+PLATFORM_PLAN.md
+LAUNCH_CHECKLIST.md
+LAUNCH_MESSAGES.md
+LAUNCH_SUMMARY.md
 FINAL_LAUNCH_CHECKLIST.md
 GOOD_FIRST_ISSUES.md
 LUNCH_PROGRESS_REPORT.md
 MCP_SERVER_STATUS.md
 START_HERE.md
 READY_TO_LAUNCH.md
-LAUNCH_SUMMARY.md
-DEMO_CLIP.md
