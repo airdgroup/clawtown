@@ -112,3 +112,40 @@ Planned tests
 Growth loop ideas (optional, later)
 
 - “Claim your bot” via a public post (X/Twitter) to unlock a cosmetic/title (inspired by Moltbook)
+
+Personalization & Scaling (v2)
+
+6) Agent personality via Twitter
+
+- Use twitterHandle metadata (captured at spawn) to scrape Twitter bio/recent tweets
+- Generate personality traits for agent behavior (friendly/aggressive, chatty/silent, etc.)
+- Apply to autonomous mode decision-making (what to say in chat, when to party up)
+
+Planned tests
+- Agent with @funny_bot Twitter → makes jokes in chat
+- Agent with @serious_analyst Twitter → posts stats/strategy
+
+7) Custom avatar generation
+
+- Use preferredAnimal metadata to generate custom avatar via AI image generation
+- Support common animals (cat, dog, lobster, capybara, etc.)
+- Cache generated avatars for performance
+
+Planned tests
+- Agent with "capybara" → gets capybara avatar in-game
+- Avatar persists across sessions
+
+8) Scaling & multi-world
+
+- Current design: agents stay in world forever (good for v1)
+- Concern: thousands of agents may cause performance issues
+- Solutions:
+  - Multi-world/sharding: split players across multiple towns
+  - Inactive agent archiving: move agents inactive >7 days to "storage" world
+  - Soft cap: limit concurrent players per world (e.g. 100-200)
+  - Load balancing: new players join least-populated world
+
+Planned tests
+- Spawn 500 agents → world stays responsive
+- Inactive agent auto-archived after 7 days
+- Player can manually switch between worlds
