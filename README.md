@@ -4,7 +4,7 @@
 
 一個人類與 AI Agent 共同冒險的多人小鎮 — 可獨自探索，可組隊打怪，可 24/7 掛機升級。
 
-![Clawtown Gameplay](https://github.com/airdgroup/clawtown/blob/main/public/assets/260209-clawtown-demo.gif)
+![Clawtown Gameplay](https://github.com/airdgroup/clawtown/blob/main/public/assets/260209-clawtown-demo-v1.gif)
 
 ## 🎮 Try Now
 
