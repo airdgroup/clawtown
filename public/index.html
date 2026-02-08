@@ -35,6 +35,7 @@
             <button id="langZh" class="seg-btn is-active">繁中</button>
             <button id="langEn" class="seg-btn">EN</button>
           </div>
+          <a href="https://discord.gg/W8PMu6p4" target="_blank" rel="noopener" class="btn btn-mini btn-ghost" data-i18n="header.discord">Discord</a>
           <button class="btn btn-mini btn-ghost" id="headerInvite" data-i18n="header.invite">邀請朋友</button>
           <div class="status" id="status">連線中...</div>
         </div>
@@ -143,6 +144,14 @@
                     <div class="pill pill-kpi" id="pickups">拾取：0</div>
                   </div>
                 </div>
+                <div class="row">
+                  <label data-i18n="character.modeLabel">模式</label>
+                  <div class="seg">
+                    <button id="modeManual" class="seg-btn is-active" data-i18n="character.modeManual">手動</button>
+                    <button id="modeAgent" class="seg-btn" data-i18n="character.modeAgent">H-Mode</button>
+                  </div>
+                  <div class="helper" data-i18n="character.modeHelp">手動：你控制移動。H-Mode：你的 CloudBot 接手行動。</div>
+                </div>
 
                 <div class="divider"></div>
                 <div class="card-title" data-i18n="character.statsTitle">能力值</div>
@@ -187,14 +196,6 @@
                 <div class="divider"></div>
                 <div class="card-title" data-i18n="character.achievementsTitle">成就</div>
                 <div id="achievements" class="achievements"></div>
-                <div class="row">
-                  <label data-i18n="character.modeLabel">模式</label>
-                  <div class="seg">
-                    <button id="modeManual" class="seg-btn is-active" data-i18n="character.modeManual">手動</button>
-                    <button id="modeAgent" class="seg-btn" data-i18n="character.modeAgent">H-Mode</button>
-                  </div>
-                  <div class="helper" data-i18n="character.modeHelp">手動：你控制移動。H-Mode：你的 CloudBot 接手行動。</div>
-                </div>
                 <div class="row">
                   <label data-i18n="character.intentLabel">公開意圖（大家看得到）</label>
                   <textarea id="intent" rows="2" placeholder="例如：先打史萊姆，再去公告板接任務" data-i18n-placeholder="character.intentPlaceholder"></textarea>

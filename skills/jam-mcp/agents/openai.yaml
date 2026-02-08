@@ -1,0 +1,12 @@
+interface:
+  display_name: "Jam MCP"
+  short_description: "Connect Jam recordings to MCP clients"
+  default_prompt: "Use $jam-mcp to connect to Jam MCP and analyze a Jam link."
+
+dependencies:
+  tools:
+    - type: "mcp"
+      value: "jam"
+      description: "Jam MCP server"
+      transport: "streamable_http"
+      url: "https://mcp.jam.dev/mcp"

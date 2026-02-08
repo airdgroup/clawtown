@@ -28,6 +28,75 @@ avatarSprite.onload = () => {
   avatarSpriteReady = true;
 };
 
+function loadSprite(src) {
+  const img = new Image();
+  const rec = { img, ready: false };
+  img.onload = () => { rec.ready = true; };
+  img.onerror = () => { rec.ready = false; };
+  img.src = src;
+  return rec;
+}
+
+function makeFxSprite(src, opts = {}) {
+  return {
+    ...loadSprite(src),
+    frames: 8,
+    frameW: 256,
+    frameH: 256,
+    duration: 900,
+    scale: 1,
+    anchorX: 0.5,
+    anchorY: 0.5,
+    offsetY: 0,
+    mode: "",
+    additive: false,
+    trail: false,
+    ...opts,
+  };
+}
+
+const fxSprites = {
+  fireball: makeFxSprite("/assets/vfx/fireball.png", {
+    duration: 920,
+    additive: true,
+    scale: (fx, p) => {
+      const r = Number(fx?.payload?.radius) || 130;
+      const base = clamp((r * 2) / 256, 0.72, 1.45);
+      return base * (0.9 + Math.sin(Math.PI * p) * 0.12);
+    },
+  }),
+  hail: makeFxSprite("/assets/vfx/hail.png", {
+    duration: 980,
+    additive: true,
+    scale: (fx, p) => {
+      const r = Number(fx?.payload?.radius) || 150;
+      const base = clamp((r * 2) / 256, 0.78, 1.5);
+      return base * (0.9 + Math.sin(Math.PI * p) * 0.12);
+    },
+  }),
+  arrow: makeFxSprite("/assets/vfx/arrow.png", { duration: 520, scale: 1.05, mode: "arrow", additive: true, anchorX: 0.82, anchorY: 0.5, trail: true }),
+  cleave: makeFxSprite("/assets/vfx/cleave.png", { duration: 520, scale: 1.12, mode: "slash", additive: true }),
+  flurry: makeFxSprite("/assets/vfx/flurry.png", { duration: 520, scale: 1.02, additive: true }),
+  level_up: makeFxSprite("/assets/vfx/level_up.png", { duration: 980, scale: 1.26, offsetY: -28, additive: true }),
+  rare_drop: makeFxSprite("/assets/vfx/rare_drop.png", { duration: 1200, scale: 1.1, offsetY: -18, additive: true }),
+};
+
+const USE_MONSTER_SPRITES = false;
+const monsterSprites = USE_MONSTER_SPRITES ? {
+  stage1: loadSprite("/assets/monsters/poring_pink.png"),
+  stage2: loadSprite("/assets/monsters/poring_green.png"),
+  stage3: loadSprite("/assets/monsters/poring_blue.png"),
+  elite: loadSprite("/assets/monsters/poring_elite.png"),
+} : {};
+
+const monsterSpriteById = {
+  m_slime_1: "stage1",
+  m_slime_2: "stage3",
+  m_slime_3: "stage2",
+  m_slime_4: "stage2",
+  m_slime_5: "stage3",
+};
+
 // Custom avatar cache (player-uploaded). Always rendered at the same in-world size.
 const avatarImgCache = new Map(); // url -> { img, ready, lastUsedAt }
 function getCustomAvatarImg(url) {
@@ -175,6 +244,14 @@ const langToggleEl = document.getElementById("langToggle");
 const moreBtnEl = document.getElementById("moreBtn");
 const moreMenuEl = document.getElementById("moreMenu");
 const moreMenuItems = Array.from(document.querySelectorAll(".ui-more-item"));
+const moreMenuHome = (() => {
+  try {
+    if (!moreMenuEl) return { parent: null, next: null };
+    return { parent: moreMenuEl.parentElement, next: moreMenuEl.nextSibling };
+  } catch {
+    return { parent: null, next: null };
+  }
+})();
 
 const tabButtons = Array.from(document.querySelectorAll(".ui-tab"));
 const tabPanels = Array.from(document.querySelectorAll(".tab"));
@@ -267,6 +344,7 @@ let hoverTips = null;
 const I18N = {
   zh: {
     tagline: "一個人類 + CloudBot 的小鎮 MMO",
+    "header.discord": "Discord",
     "header.invite": "邀請朋友",
     "hud.help": "WASD/方向鍵移動・Enter 聊天・滑鼠點地面設定目標",
     "action.slot1": "技能1",
@@ -441,6 +519,7 @@ const I18N = {
   },
   en: {
     tagline: "A human + CloudBot town MMO",
+    "header.discord": "Discord",
     "header.invite": "Invite",
     "hud.help": "Move: WASD/Arrows · Chat: Enter · Set goal: click ground",
     "action.slot1": "Skill 1",
@@ -1083,15 +1162,68 @@ for (const b of tabButtons) {
 }
 
 function closeMoreMenu() {
-  if (moreMenuEl) moreMenuEl.hidden = true;
-  if (moreBtnEl) moreBtnEl.setAttribute("aria-expanded", "false");
+  if (!moreMenuEl || !moreBtnEl) return;
+  moreMenuEl.hidden = true;
+  moreBtnEl.setAttribute("aria-expanded", "false");
+  moreBtnEl.classList.remove("is-active");
+  moreMenuEl.classList.remove("is-portal");
+  moreMenuEl.style.position = "";
+  moreMenuEl.style.left = "";
+  moreMenuEl.style.top = "";
+  moreMenuEl.style.right = "";
+  moreMenuEl.style.zIndex = "";
+  try {
+    if (moreMenuHome.parent && moreMenuEl.parentElement !== moreMenuHome.parent) {
+      if (moreMenuHome.next && moreMenuHome.next.parentNode === moreMenuHome.parent) {
+        moreMenuHome.parent.insertBefore(moreMenuEl, moreMenuHome.next);
+      } else {
+        moreMenuHome.parent.appendChild(moreMenuEl);
+      }
+    }
+  } catch {
+    // ignore
+  }
+}
+
+function positionMoreMenuPortal() {
+  if (!moreMenuEl || !moreBtnEl || moreMenuEl.hidden) return;
+  try {
+    const r = moreBtnEl.getBoundingClientRect();
+    const w = Math.max(160, Math.min(260, moreMenuEl.getBoundingClientRect().width || 180));
+    const pad = 10;
+    const left = clamp(r.right - w, pad, window.innerWidth - w - pad);
+    const top = Math.min(window.innerHeight - pad - 40, r.bottom + 8);
+    moreMenuEl.style.left = `${Math.round(left)}px`;
+    moreMenuEl.style.top = `${Math.round(top)}px`;
+  } catch {
+    // ignore
+  }
+}
+
+function openMoreMenu() {
+  if (!moreMenuEl || !moreBtnEl) return;
+  moreMenuEl.hidden = false;
+  moreBtnEl.setAttribute("aria-expanded", "true");
+  moreBtnEl.classList.add("is-active");
+
+  // Portal the menu to body so it isn't clipped by the panel's rounded container.
+  try {
+    if (moreMenuEl.parentElement !== document.body) document.body.appendChild(moreMenuEl);
+    moreMenuEl.classList.add("is-portal");
+    moreMenuEl.style.position = "fixed";
+    moreMenuEl.style.right = "auto";
+    moreMenuEl.style.zIndex = "2000";
+  } catch {
+    // ignore
+  }
+  positionMoreMenuPortal();
 }
 
 function toggleMoreMenu() {
   if (!moreMenuEl || !moreBtnEl) return;
   const next = Boolean(moreMenuEl.hidden);
-  moreMenuEl.hidden = !next;
-  moreBtnEl.setAttribute("aria-expanded", next ? "true" : "false");
+  if (next) openMoreMenu();
+  else closeMoreMenu();
 }
 
 moreBtnEl?.addEventListener("click", (e) => {
@@ -1123,6 +1255,8 @@ document.addEventListener("click", (e) => {
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") closeMoreMenu();
 });
+window.addEventListener("resize", () => positionMoreMenuPortal());
+window.addEventListener("scroll", () => positionMoreMenuPortal(), { passive: true });
 
 openTab("character");
 
@@ -3192,6 +3326,76 @@ function renderInventory() {
     .join('');
 }
 
+function drawFxSprite(fx, ageMs, alpha) {
+  const type = String(fx?.type || "");
+  const meta = fxSprites[type];
+  if (!meta || !meta.ready || !meta.img || !meta.img.complete || meta.img.naturalWidth <= 0) return false;
+
+  const duration = Math.max(120, Number(meta.duration) || 900);
+  const prog = clamp01(ageMs / duration);
+  const frames = Math.max(1, Math.floor(Number(meta.frames) || 1));
+  const frameW = Math.max(1, Math.floor(Number(meta.frameW) || 1));
+  const frameH = Math.max(1, Math.floor(Number(meta.frameH) || 1));
+  const frame = Math.min(frames - 1, Math.floor(prog * frames));
+
+  let x = Number(fx.x) || 0;
+  let y = Number(fx.y) || 0;
+  let rotation = 0;
+
+  if (meta.mode === "arrow") {
+    const payload = fx?.payload || {};
+    const fromX = Number.isFinite(Number(payload.fromX)) ? Number(payload.fromX) : x;
+    const fromY = Number.isFinite(Number(payload.fromY)) ? Number(payload.fromY) : y;
+    const toX = Number.isFinite(Number(payload.toX)) ? Number(payload.toX) : x;
+    const toY = Number.isFinite(Number(payload.toY)) ? Number(payload.toY) : y;
+    x = lerp(fromX, toX, prog);
+    y = lerp(fromY, toY, prog);
+    rotation = Math.atan2(toY - fromY, toX - fromX);
+
+    if (meta.trail) {
+      ctx.save();
+      ctx.globalCompositeOperation = meta.additive ? "lighter" : "source-over";
+      ctx.globalAlpha = clamp01(alpha) * 0.55;
+      ctx.strokeStyle = "rgba(255,255,255,0.72)";
+      ctx.lineWidth = 2.5;
+      ctx.lineCap = "round";
+      ctx.beginPath();
+      ctx.moveTo(fromX, fromY);
+      ctx.lineTo(x, y);
+      ctx.stroke();
+      ctx.restore();
+    }
+  } else if (meta.mode === "slash") {
+    const payload = fx?.payload || {};
+    const facing = String(payload.facing || payload.dir || "").toLowerCase();
+    if (facing === "left") rotation = Math.PI;
+    else if (facing === "up") rotation = -Math.PI / 2;
+    else if (facing === "down") rotation = Math.PI / 2;
+    else if (facing === "right") rotation = 0;
+    else {
+      const seed = hashString(fx.id || `${x},${y},${fx.createdAt || ""}`);
+      rotation = (seed % 360) * (Math.PI / 180);
+    }
+  }
+
+  const scale = typeof meta.scale === "function" ? meta.scale(fx, prog) : Number(meta.scale || 1);
+  const dw = frameW * scale;
+  const dh = frameH * scale;
+  const ax = clamp01(Number(meta.anchorX ?? 0.5));
+  const ay = clamp01(Number(meta.anchorY ?? 0.5));
+  const dx = -dw * ax;
+  const dy = -dh * ay;
+
+  ctx.save();
+  if (meta.additive) ctx.globalCompositeOperation = "lighter";
+  ctx.globalAlpha = clamp01(alpha);
+  ctx.translate(x, y + (Number(meta.offsetY) || 0));
+  if (rotation) ctx.rotate(rotation);
+  ctx.drawImage(meta.img, frame * frameW, 0, frameW, frameH, dx, dy, dw, dh);
+  ctx.restore();
+  return true;
+}
+
 function draw() {
   // NOTE: Avoid clearing the canvas before we know we have a valid world snapshot.
   // iOS Safari (and flaky networks) can briefly deliver "no world yet" states during reconnects,
@@ -3236,6 +3440,10 @@ function draw() {
         const type = String(fx.type || "spark");
         const r = 18 + (1 - p) * 44;
         const payload = fx.payload || {};
+
+        if (drawFxSprite(fx, age, p)) {
+          continue;
+        }
 
         const palette = {
           spark: { fill: "rgba(184,135,27,0.20)", stroke: "rgba(184,135,27,0.55)" },
@@ -3300,12 +3508,16 @@ function draw() {
           ctx.stroke();
         } else if (type === "cleave") {
           const rr = Number.isFinite(Number(payload.radius)) ? Number(payload.radius) * 0.6 : 64;
+          const facing = String(payload.facing || "").toLowerCase();
+          const rot = facing === "left" ? Math.PI : facing === "up" ? -Math.PI / 2 : facing === "down" ? Math.PI / 2 : 0;
           ctx.fillStyle = c.fill;
           ctx.strokeStyle = c.stroke;
           ctx.lineWidth = 2;
+          ctx.translate(fx.x, fx.y);
+          if (rot) ctx.rotate(rot);
           ctx.beginPath();
-          ctx.arc(fx.x, fx.y, rr, -0.85, 0.85);
-          ctx.lineTo(fx.x, fx.y);
+          ctx.arc(0, 0, rr, -0.85, 0.85);
+          ctx.lineTo(0, 0);
           ctx.closePath();
           ctx.fill();
           ctx.stroke();
@@ -3678,6 +3890,18 @@ function drawDrops() {
   }
 }
 
+function getMonsterSprite(m) {
+  if (!USE_MONSTER_SPRITES) return null;
+  if (!m) return null;
+  if (m.kind === "elite") return monsterSprites.elite;
+  const byId = monsterSpriteById[m.id];
+  if (byId && monsterSprites[byId]) return monsterSprites[byId];
+  const hp = Number(m.maxHp) || 0;
+  if (hp >= 20) return monsterSprites.stage3;
+  if (hp >= 17) return monsterSprites.stage2;
+  return monsterSprites.stage1;
+}
+
 function drawMonsters() {
   const mons = (state && state.monsters) || [];
   for (const m of mons) {
@@ -3685,26 +3909,36 @@ function drawMonsters() {
     const x = m.x;
     const y = m.y;
 
+    const sprite = getMonsterSprite(m);
+    const spriteReady = sprite && sprite.ready && sprite.img && sprite.img.complete && sprite.img.naturalWidth > 0;
+
     // shadow
     ctx.beginPath();
     ctx.fillStyle = "rgba(9,19,36,0.16)";
-    ctx.ellipse(x, y + 12, 14, 7, 0, 0, Math.PI * 2);
+    ctx.ellipse(x, y + 12, spriteReady && m.kind === "elite" ? 20 : spriteReady ? 16 : 14, spriteReady && m.kind === "elite" ? 9 : spriteReady ? 8 : 7, 0, 0, Math.PI * 2);
     ctx.fill();
 
-    // body
-    const fill = (m.color && typeof m.color === 'string')
-      ? String(m.color)
-      : (m.kind === "slime" ? "rgba(52, 199, 89, 0.85)" : "rgba(255, 59, 48, 0.82)");
-    ctx.beginPath();
-    ctx.fillStyle = fill;
-    ctx.arc(x, y, 14, 0, Math.PI * 2);
-    ctx.fill();
+    if (spriteReady) {
+      const size = m.kind === "elite" ? 86 : 64;
+      const dx = x - size / 2;
+      const dy = y - size / 2 - 8;
+      ctx.drawImage(sprite.img, dx, dy, size, size);
+    } else {
+      // fallback: simple blob
+      const fill = (m.color && typeof m.color === 'string')
+        ? String(m.color)
+        : (m.kind === "slime" ? "rgba(52, 199, 89, 0.85)" : "rgba(255, 59, 48, 0.82)");
+      ctx.beginPath();
+      ctx.fillStyle = fill;
+      ctx.arc(x, y, 14, 0, Math.PI * 2);
+      ctx.fill();
 
-    // highlight
-    ctx.beginPath();
-    ctx.fillStyle = "rgba(255,255,255,0.35)";
-    ctx.arc(x - 5, y - 6, 5, 0, Math.PI * 2);
-    ctx.fill();
+      // highlight
+      ctx.beginPath();
+      ctx.fillStyle = "rgba(255,255,255,0.35)";
+      ctx.arc(x - 5, y - 6, 5, 0, Math.PI * 2);
+      ctx.fill();
+    }
 
     // hp bar
     const w = 36;

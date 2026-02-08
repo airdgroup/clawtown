@@ -1144,6 +1144,10 @@ label {
 .avatar-actions {
   flex: 1;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
 }
 
 .avatar-bg-toggle {
@@ -1162,7 +1166,8 @@ label {
 }
 
 .avatar-actions .helper {
-  margin-top: 6px;
+  margin-top: 0;
+  align-self: stretch;
 }
 
 @media (max-width: 640px) {

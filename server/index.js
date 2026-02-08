@@ -474,6 +474,22 @@ function xpToNext(level) {
   return 10 + (level - 1) * 5;
 }
 
+function handleLevelUp(p, { healToFull = false, emitBotEvent = false } = {}) {
+  if (!p) return false;
+  const newLevel = levelForXp(p.xp);
+  if (newLevel <= p.level) return false;
+  const prevLevel = p.level;
+  p.level = newLevel;
+  p.statPoints += Math.max(0, newLevel - prevLevel);
+  ensurePlayerVitals(p, { gainHpFromMaxHpIncrease: true });
+  if (healToFull) p.hp = p.maxHp;
+  pushChat({ kind: "system", text: `${p.name} reached Level ${p.level}!`, from: { id: "system", name: "Town" } });
+  if (emitBotEvent) pushBotEvent(p, { kind: "level", text: `Level up: ${p.level}`, important: true, data: { level: p.level } });
+  pushFx({ type: "level_up", x: p.x, y: p.y, byPlayerId: p.id, payload: { level: p.level } });
+  markDirty(p);
+  return true;
+}
+
 const players = new Map(); // playerId -> player
 const botTokens = new Map(); // botToken -> playerId
 const joinCodes = new Map(); // joinCode -> { playerId, expiresAt, createdAt }
@@ -583,7 +599,7 @@ const ITEM_CATALOG = {
   bow_1: { id: "bow_1", name: "Feather Bow", slot: "weapon", stackable: false, rarity: "common", stats: { atk: 2, crit: 0.02 } },
 
   armor_1: { id: "armor_1", name: "Cloth Armor", slot: "armor", stackable: false, rarity: "common", stats: { def: 1 } },
-  ring_1: { id: "ring_1", name: "Copper Ring", slot: "accessory", stackable: false, rarity: "common", stats: { atk: 1 } },
+  ring_1: { id: "ring_1", name: "Copper Ring", slot: "accessory", stackable: false, rarity: "rare", stats: { atk: 1 } },
 };
 
 function getItemDef(itemId) {
@@ -618,6 +634,9 @@ function spawnDrop({ x, y, itemId, qty, byMonsterId }) {
     expiresAt: nowMs() + 45_000,
   };
   drops.set(drop.id, drop);
+  if (def.rarity === "rare" || def.rarity === "epic") {
+    pushFx({ type: "rare_drop", x: drop.x, y: drop.y, byPlayerId: null, payload: { itemId: def.id, rarity: def.rarity } });
+  }
   return drop;
 }
 
@@ -1277,17 +1296,7 @@ function applyDamage(p, m, dmg) {
       kp.meta.kills = Math.max(0, Math.floor(Number(kp.meta.kills) || 0) + 1);
       kp.xp += baseXp;
       markDirty(kp);
-      const newLevel = levelForXp(kp.xp);
-      if (newLevel > kp.level) {
-        const prevLevel = kp.level;
-        kp.level = newLevel;
-        kp.statPoints += Math.max(0, newLevel - prevLevel);
-        ensurePlayerVitals(kp, { gainHpFromMaxHpIncrease: true });
-        kp.hp = kp.maxHp;
-        pushChat({ kind: "system", text: `${kp.name} reached Level ${kp.level}!`, from: { id: "system", name: "Town" } });
-        pushBotEvent(kp, { kind: "level", text: `Level up: ${kp.level}`, important: true, data: { level: kp.level } });
-        markDirty(kp);
-      }
+      handleLevelUp(kp, { healToFull: true, emitBotEvent: true });
     }
 
     pushChat({ kind: "system", text: `${p.name} defeated ${m.name}! (+${baseXp} XP)`, from: { id: "system", name: "Town" } });
@@ -1449,7 +1458,7 @@ function performCast(p, { spell, x, y, source }) {
       pushFx({ type: "spark", x: p.x, y: p.y, byPlayerId: p.id, payload: { miss: true, source } });
       return { ok: false, reason: "no target" };
     }
-    pushFx({ type: "cleave", x: p.x, y: p.y, byPlayerId: p.id, payload: { radius, hits, source } });
+    pushFx({ type: "cleave", x: p.x, y: p.y, byPlayerId: p.id, payload: { radius, hits, facing: p.facing, source } });
     return { ok: true, spell: s, hits: hits.length };
   }
 
@@ -2408,16 +2417,7 @@ app.post("/api/bot/chat", (req, res) => {
   pushChat({ kind: "chat", text: req.body?.text, from: { id: p.id, name: p.name } });
   p.xp += 1;
   markDirty(p);
-  const newLevel = levelForXp(p.xp);
-  if (newLevel > p.level) {
-    const prevLevel = p.level;
-    p.level = newLevel;
-    p.statPoints += Math.max(0, newLevel - prevLevel);
-    ensurePlayerVitals(p, { gainHpFromMaxHpIncrease: true });
-    pushChat({ kind: "system", text: `${p.name} reached Level ${p.level}!`, from: { id: "system", name: "Town" } });
-    pushBotEvent(p, { kind: "level", text: `Level up: ${p.level}`, important: true, data: { level: p.level } });
-    markDirty(p);
-  }
+  handleLevelUp(p, { emitBotEvent: true });
   res.json({ ok: true });
 });
 
@@ -2613,16 +2613,7 @@ function tryAutoPickup(p) {
     // tiny dopamine
     p.xp += 1;
     markDirty(p);
-    const newLevel = levelForXp(p.xp);
-    if (newLevel > p.level) {
-      const prevLevel = p.level;
-      p.level = newLevel;
-      p.statPoints += Math.max(0, newLevel - prevLevel);
-      ensurePlayerVitals(p, { gainHpFromMaxHpIncrease: true });
-      pushChat({ kind: "system", text: `${p.name} reached Level ${p.level}!`, from: { id: "system", name: "Town" } });
-      pushBotEvent(p, { kind: "level", text: `Level up: ${p.level}`, important: true, data: { level: p.level } });
-      markDirty(p);
-    }
+    handleLevelUp(p, { emitBotEvent: true });
     // allow multiple pickups per tick
   }
 }
@@ -2797,17 +2788,9 @@ wss.on("connection", (ws, req) => {
       if (!created) return;
       player.xp += 1;
       markDirty(player);
-        const newLevel = levelForXp(player.xp);
-        if (newLevel > player.level) {
-          const prevLevel = player.level;
-          player.level = newLevel;
-          player.statPoints += Math.max(0, newLevel - prevLevel);
-          ensurePlayerVitals(player, { gainHpFromMaxHpIncrease: true });
-          pushChat({ kind: "system", text: `${player.name} reached Level ${player.level}!`, from: { id: "system", name: "Town" } });
-          markDirty(player);
-        }
-        return;
-      }
+      handleLevelUp(player, { emitBotEvent: false });
+      return;
+    }
 
     if (type === "emote") {
       const emote = String(msg?.emote || "").trim().toLowerCase();
@@ -2989,15 +2972,7 @@ function tick() {
         // tiny dopamine: arriving gives XP
         p.xp += 1;
         markDirty(p);
-        const newLevel = levelForXp(p.xp);
-        if (newLevel > p.level) {
-          const prevLevel = p.level;
-          p.level = newLevel;
-          p.statPoints += Math.max(0, newLevel - prevLevel);
-          ensurePlayerVitals(p, { gainHpFromMaxHpIncrease: true });
-          pushChat({ kind: "system", text: `${p.name} reached Level ${p.level}!`, from: { id: "system", name: "Town" } });
-          markDirty(p);
-        }
+        handleLevelUp(p, { emitBotEvent: false });
       }
     }
 
