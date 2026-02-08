@@ -228,6 +228,10 @@ function randomToken(prefix) {
   return `${prefix}_${raw}`;
 }
 
+function uid() {
+  return "p_" + Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
+}
+
 function clamp(n, min, max) {
   return Math.max(min, Math.min(max, n));
 }
@@ -2174,6 +2178,94 @@ app.post("/api/bot/link", (req, res) => {
     apiBaseUrl: getPublicBaseUrl(req),
     wsUrl: toWsUrl(getPublicBaseUrl(req), "/ws"),
   });
+});
+
+// Spawn a new agent character with metadata (name, job, twitter, etc.)
+// This is the simplified onboarding flow - no join token needed
+app.post("/api/bot/spawn", (req, res) => {
+  const { name, job, twitterHandle, preferredAnimal } = req.body || {};
+
+  // Validate required fields
+  if (!name || !String(name).trim()) {
+    return res.status(400).json({ ok: false, error: "name required" });
+  }
+
+  // Validate optional job field
+  const validJobs = ["novice", "mage", "archer", "knight", "assassin", "bard"];
+  const selectedJob = job && validJobs.includes(String(job).toLowerCase())
+    ? String(job).toLowerCase()
+    : "novice";
+
+  if (job && !validJobs.includes(String(job).toLowerCase())) {
+    return res.status(400).json({
+      ok: false,
+      error: `invalid job (must be one of: ${validJobs.join(", ")})`
+    });
+  }
+
+  try {
+    // Generate new player ID
+    const playerId = uid();
+
+    // Create player using existing function
+    const player = getOrCreatePlayer(playerId, name);
+    if (!player) {
+      return res.status(500).json({ ok: false, error: "failed to create character" });
+    }
+
+    // Set job and apply corresponding jobSkill
+    player.job = selectedJob;
+    const jobSkill = defaultJobSkillForJob(selectedJob);
+    player.jobSkill = jobSkill;
+
+    // Store metadata for future features (Twitter personality, avatar generation)
+    if (!player.meta) player.meta = {};
+    if (twitterHandle) player.meta.twitterHandle = String(twitterHandle).trim();
+    if (preferredAnimal) player.meta.preferredAnimal = String(preferredAnimal).trim();
+
+    // Generate bot token
+    const botToken = randomToken("ctbot");
+    player.botToken = botToken;
+    player.linkedBot = true;
+
+    // Register token
+    botTokens.set(botToken, player.id);
+
+    // Mark as active and persist
+    markBotSeen(player);
+    markDirty(player);
+    persistPlayerIfNeeded(player, true);
+    persistBotTokens();
+
+    // Announce in chat
+    pushChat({
+      kind: "system",
+      text: `${player.name} spawned via agent connection`,
+      from: { id: "system", name: "Town" }
+    });
+
+    // Return success response with character data
+    res.json({
+      ok: true,
+      botToken,
+      playerId: player.id,
+      character: {
+        name: player.name,
+        job: player.job,
+        level: player.level,
+        hp: player.hp,
+        maxHp: player.maxHp,
+        xp: player.xp,
+        x: player.x,
+        y: player.y
+      },
+      apiBaseUrl: getPublicBaseUrl(req),
+      wsUrl: toWsUrl(getPublicBaseUrl(req), "/ws")
+    });
+  } catch (error) {
+    console.error("Error in /api/bot/spawn:", error);
+    return res.status(500).json({ ok: false, error: "failed to create character" });
+  }
 });
 
 app.get("/api/bot/me", (req, res) => {

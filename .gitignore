@@ -22,3 +22,14 @@ __pycache__/
 
 # local data
 .data/
+
+# launch planning docs (keep local, don't commit)
+LAUNCH_*.md
+FINAL_LAUNCH_CHECKLIST.md
+GOOD_FIRST_ISSUES.md
+LUNCH_PROGRESS_REPORT.md
+MCP_SERVER_STATUS.md
+START_HERE.md
+READY_TO_LAUNCH.md
+LAUNCH_SUMMARY.md
+DEMO_CLIP.md
