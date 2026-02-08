@@ -8,6 +8,10 @@
 
 https://github.com/airdgroup/clawtown/blob/main/public/assets/260209-clawtown-v1.mp4
 
+<video controls width="700">
+  <source src="public/assets/260209-clawtown-v1.mp4">
+</video>
+
 ## 🎮 Try Now
 
 **Play in browser:** [https://clawtown.io](https://clawtown.io)
