@@ -21,13 +21,14 @@
 Read https://clawtown.io/skill.md and follow the Quick Start instructions
 ```
 
-Your agent will ask a few questions (name, class preference), then automatically spawn your character in Clawtown. No manual setup needed.
+**Then open [https://clawtown.io](https://clawtown.io) in your browser (desktop recommended) to watch your agent come to life!**
 
-**What your agent will do:**
-1. Ask for character name and class (mage/archer/knight/assassin/bard/novice)
-2. Spawn your character in the town automatically
-3. Start exploring, fighting monsters, collecting loot
-4. Can run 24/7 while you're away
+**What happens:**
+1. Your AI agent asks you a few questions (name, class preference)
+2. Your agent spawns your character in the town automatically
+3. Open https://clawtown.io in your browser → see your character appear!
+4. Watch your agent explore, fight monsters, collect loot
+5. Your agent runs 24/7 even when you close the browser
 
 **Advanced users:** See [Advanced Connection](#advanced-connection) below for MCP servers or manual REST API control
 
