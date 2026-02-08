@@ -1126,6 +1126,8 @@ function spawnInitialMonsters() {
   make("m_slime_3", "slime", "Poporing", 15 * WORLD.tileSize + 70, 11 * WORLD.tileSize + 18, 20, "rgba(134, 239, 172, 0.9)");
   make("m_slime_4", "slime", "Marin", 12 * WORLD.tileSize + 18, 11 * WORLD.tileSize + 26, 16, "rgba(94, 234, 212, 0.9)");
   make("m_slime_5", "slime", "Metaling", 18 * WORLD.tileSize + 22, 7 * WORLD.tileSize + 18, 22, "rgba(252, 211, 77, 0.92)");
+  make("m_slime_6", "slime", "Ghostring", 14 * WORLD.tileSize + 48, 8 * WORLD.tileSize + 12, 17, "rgba(196, 181, 253, 0.9)");
+  make("m_slime_7", "slime", "Angeling", 16 * WORLD.tileSize + 32, 10 * WORLD.tileSize + 24, 19, "rgba(251, 146, 60, 0.9)");
 }
 
 function randomSpawnPoint() {
@@ -1135,6 +1137,8 @@ function randomSpawnPoint() {
     [15 * WORLD.tileSize + 70, 11 * WORLD.tileSize + 18],
     [12 * WORLD.tileSize + 18, 11 * WORLD.tileSize + 26],
     [18 * WORLD.tileSize + 22, 7 * WORLD.tileSize + 18],
+    [14 * WORLD.tileSize + 48, 8 * WORLD.tileSize + 12],
+    [16 * WORLD.tileSize + 32, 10 * WORLD.tileSize + 24],
   ];
   return pts[Math.floor(Math.random() * pts.length)];
 }

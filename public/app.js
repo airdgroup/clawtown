@@ -95,6 +95,8 @@ const monsterSpriteById = {
   m_slime_3: "stage2",
   m_slime_4: "stage2",
   m_slime_5: "stage3",
+  m_slime_6: "stage1",  // Ghostring - purple slime
+  m_slime_7: "stage2",  // Angeling - orange slime
 };
 
 // Custom avatar cache (player-uploaded). Always rendered at the same in-world size.
