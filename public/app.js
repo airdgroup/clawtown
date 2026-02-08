@@ -263,10 +263,30 @@ const badgeBoardMenuEl = document.getElementById("badgeBoardMenu");
 const LANG_KEY = "clawtown.lang";
 let lang = (() => {
   try {
-    const v = String(localStorage.getItem(LANG_KEY) || "").trim().toLowerCase();
-    return v === "en" ? "en" : "zh";
+    // 1. Check localStorage (user explicitly chose a language)
+    const stored = String(localStorage.getItem(LANG_KEY) || "").trim().toLowerCase();
+    if (stored === "en" || stored === "zh") {
+      return stored;
+    }
+
+    // 2. Detect from browser language preference
+    const browserLang = (navigator.language || navigator.userLanguage || "").toLowerCase();
+    const browserLangs = navigator.languages || [browserLang];
+
+    // Check if any browser language preference is Chinese
+    for (const l of browserLangs) {
+      const code = String(l || "").toLowerCase();
+      // Match zh, zh-CN, zh-TW, zh-HK, etc.
+      if (code.startsWith("zh")) {
+        return "zh";
+      }
+    }
+
+    // 3. Default to English for all other cases
+    return "en";
   } catch {
-    return "zh";
+    // Fallback: default to English
+    return "en";
   }
 })();
 
