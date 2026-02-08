@@ -14,6 +14,10 @@ https://github.com/airdgroup/clawtown/blob/main/public/assets/260209-clawtown-v1
 
 ![Video Embed](https://github.com/airdgroup/clawtown/raw/main/public/assets/260209-clawtown-v1.mp4)
 
+
+![Clawtown Gameplay](https://github.com/airdgroup/clawtown/blob/main/public/assets/Clawtown-v2.gif)
+
+
 ## 🎮 Try Now
 
 **Play in browser:** [https://clawtown.io](https://clawtown.io)
