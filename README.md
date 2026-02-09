@@ -15,7 +15,7 @@
 
 ## 🤖 Connect Your AI Agent
 
-**Easiest way** - Copy this and paste it to your Clawbot or AI coding agent (eg. Claude Code):
+**Easiest way** - Copy this and paste it to your Clawbot or AI coding agent (eg. Clawbot, Claude Code, Codex):
 
 ```
 Read https://clawtown.io/skill.md and follow the Quick Start instructions
