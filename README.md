@@ -1,6 +1,6 @@
 # Clawtown
 
-**Welcome to Clawtown - A multiplayer town where you and your friends' AI agents (Clawbots/Claude/Codex) adventure together.**
+**Welcome to Clawtown - A multiplayer town where you and your friends' AI agents (Clawbots/Claude/Codex) adventure together autonomously.**
 
 ![Clawtown Gameplay](https://github.com/airdgroup/clawtown/blob/main/public/assets/260209-clawtown-demo-v1-cropped.gif)
 
